@@ -3,33 +3,19 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import {
-  DndContext,
-  KeyboardSensor,
-  MouseSensor,
-  TouchSensor,
-  closestCenter,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  rectSortingStrategy,
-  sortableKeyboardCoordinates,
-  useSortable,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { Check, FileText, Pencil, RotateCw, Trash2, X } from 'lucide-react'
 import type { PdfPage, UploadedPdf } from '../../types/pdf'
 import type { PageViewMode } from '../../store/viewPreferences'
 import { individualFilename } from '../../lib/export/filenames'
 import { PageThumbnail } from './PageThumbnail'
-import { DragOutHandle } from './DragOutHandle'
+import { prepareDragOut, readyDragOutPayload } from '../../lib/export/dragOut'
+
+type DropPlacement = 'before' | 'after'
 
 interface PageGridProps {
   pages: PdfPage[]
@@ -41,7 +27,7 @@ interface PageGridProps {
   searchQuery: string
   onToggleSelection: (pageId: string) => void
   onSetSelection: (pageIds: string[]) => void
-  onReorder: (activeId: string, overId: string) => void
+  onReorder: (activeId: string, overId: string, placement?: DropPlacement) => void
   onRename: (pageId: string, label: string) => void
   onInspectPage: (pageId: string) => void
   onViewPage: (pageId: string) => void
@@ -57,9 +43,15 @@ interface PageCardProps {
   pdfs: UploadedPdf[]
   isSelected: boolean
   viewMode: PageViewMode
+  dropPlacement: DropPlacement | null
+  isBeingDragged: boolean
   getDragPages: (pageId: string) => PdfPage[]
+  onDragStart: (pageId: string) => void
+  onDragEnd: () => void
+  onDragOverPage: (pageId: string, event: ReactDragEvent<HTMLElement>) => void
+  onDropOnPage: (pageId: string, event: ReactDragEvent<HTMLElement>) => void
   onSelectPage: (pageId: string, modifiers: { extend: boolean; toggle: boolean }) => void
-  onReorder: (activeId: string, overId: string) => void
+  onReorder: (activeId: string, overId: string, placement?: DropPlacement) => void
   onRename: (pageId: string, label: string) => void
   onInspectPage: (pageId: string) => void
   onViewPage: (pageId: string) => void
@@ -75,7 +67,13 @@ function PageCard({
   pdfs,
   isSelected,
   viewMode,
+  dropPlacement,
+  isBeingDragged,
   getDragPages,
+  onDragStart,
+  onDragEnd,
+  onDragOverPage,
+  onDropOnPage,
   onSelectPage,
   onReorder,
   onRename,
@@ -86,17 +84,10 @@ function PageCard({
 }: PageCardProps) {
   const [isRenaming, setIsRenaming] = useState(false)
   const [draftLabel, setDraftLabel] = useState(page.label ?? '')
-  const { attributes, isDragging, listeners, setNodeRef, transform, transition } =
-    useSortable({ id: page.id })
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  }
+  const isDragging = isBeingDragged
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
-    listeners?.onKeyDown?.(event)
-    if (isDragging) return
+    if (isDragging || event.target !== event.currentTarget) return
 
     const direction =
       event.key === 'ArrowLeft' || event.key === 'ArrowUp'
@@ -149,11 +140,22 @@ function PageCard({
 
   return (
     <article
-      ref={setNodeRef}
-      className={`page-card${isDragging ? ' is-dragging' : ''}${isSelected ? ' is-selected' : ''}`}
-      style={style}
-      {...attributes}
-      {...listeners}
+      className={`page-card${isDragging ? ' is-dragging' : ''}${dropPlacement ? ` is-drop-${dropPlacement}` : ''}${isSelected ? ' is-selected' : ''}`}
+      tabIndex={0}
+      draggable
+      onPointerEnter={() => prepareDragOut(getDragPages(page.id), pdfs)}
+      onPointerDown={() => prepareDragOut(getDragPages(page.id), pdfs)}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'copyMove'
+        event.dataTransfer.setData('text/plain', page.id)
+        // Lets the same drag also drop as a file on the desktop or a folder.
+        const payload = readyDragOutPayload(getDragPages(page.id))
+        if (payload) event.dataTransfer.setData('DownloadURL', payload)
+        onDragStart(page.id)
+      }}
+      onDragEnd={onDragEnd}
+      onDragOver={(event) => onDragOverPage(page.id, event)}
+      onDrop={(event) => onDropOnPage(page.id, event)}
       onKeyDown={handleKeyDown}
       onClick={handleCardClick}
       data-page-id={page.id}
@@ -176,9 +178,7 @@ function PageCard({
         pageNumber={page.pageNumber}
         rotation={page.rotation}
         onExpand={() => onViewPage(page.id)}
-      >
-        <DragOutHandle page={page} pdfs={pdfs} getDragPages={() => getDragPages(page.id)} />
-      </PageThumbnail>
+      />
       <div className={`page-metadata${viewMode === 'detail' ? ' detail-page-info' : ''}`}>
         <span className="page-number">{page.pageNumber}</span>
         <div className="page-source" title={page.sourcePdfName}>
@@ -308,18 +308,6 @@ export function PageGrid({
   onRotatePage,
   onDeletePage,
 }: PageGridProps) {
-  const sensors = useSensors(
-    useSensor(MouseSensor, {
-      activationConstraint: { distance: 5 },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: { delay: 120, tolerance: 8 },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
-  )
-  const pageIds = useMemo(() => pages.map((page) => page.id), [pages])
   const sourcePdfById = useMemo(
     () => new Map(pdfs.map((pdf) => [pdf.id, pdf])),
     [pdfs],
@@ -328,6 +316,8 @@ export function PageGrid({
     () => new Set(selectedPageIds),
     [selectedPageIds],
   )
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dropSlot, setDropSlot] = useState<string | null>(null)
   const getDragPages = (pageId: string) =>
     selectedSet.has(pageId) && selectedSet.size > 1
       ? pages.filter((page) => selectedSet.has(page.id))
@@ -447,20 +437,40 @@ export function PageGrid({
     window.addEventListener('pointerup', onUp)
   }
 
-  const handleDragEnd = ({ active, over }: DragEndEvent) => {
-    if (over && active.id !== over.id) {
-      onReorder(String(active.id), String(over.id))
+  const endDrag = () => {
+    setDraggingId(null)
+    setDropSlot(null)
+  }
+
+  const handleDragOverPage = (pageId: string, event: ReactDragEvent<HTMLElement>) => {
+    if (!draggingId) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    if (pageId === draggingId) {
+      setDropSlot(null)
+      return
     }
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const isAfter =
+      viewMode === 'detail'
+        ? event.clientY > bounds.top + bounds.height / 2
+        : event.clientX > bounds.left + bounds.width / 2
+    setDropSlot(`${pageId}|${isAfter ? 'after' : 'before'}`)
+  }
+
+  const handleDropOnPage = (pageId: string, event: ReactDragEvent<HTMLElement>) => {
+    if (!draggingId) return
+    event.preventDefault()
+    event.stopPropagation()
+    const [slotPageId, placement] = dropSlot?.split('|') ?? []
+    if (draggingId !== pageId && slotPageId === pageId) {
+      onReorder(draggingId, pageId, placement as DropPlacement)
+    }
+    endDrag()
   }
 
   if (pages.length > 0) {
     return (
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext items={pageIds} strategy={rectSortingStrategy}>
           <div
             ref={gridRef}
             className={`page-grid view-${viewMode}${marquee ? ' is-marquee-selecting' : ''}`}
@@ -520,6 +530,12 @@ export function PageGrid({
                   sourcePdf={sourcePdf}
                   pdfs={pdfs}
                   getDragPages={getDragPages}
+                  isBeingDragged={draggingId === page.id}
+                  dropPlacement={dropSlot?.startsWith(`${page.id}|`) ? (dropSlot.split('|')[1] as DropPlacement) : null}
+                  onDragStart={setDraggingId}
+                  onDragEnd={endDrag}
+                  onDragOverPage={handleDragOverPage}
+                  onDropOnPage={handleDropOnPage}
                   isSelected={selectedSet.has(page.id)}
                   viewMode={viewMode}
                   onSelectPage={selectPage}
@@ -539,8 +555,6 @@ export function PageGrid({
               </div>
             )}
           </div>
-        </SortableContext>
-      </DndContext>
     )
   }
 

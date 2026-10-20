@@ -5,13 +5,13 @@ import { applyPageRotation, findSourcePdf, loadSourceDocument } from './common'
 export async function createMergedPdf(
   pagesInGridOrder: PdfPage[],
   pdfs: UploadedPdf[],
+  documentCache: Map<string, Promise<PDFDocument>> = new Map(),
 ): Promise<Uint8Array> {
   if (pagesInGridOrder.length === 0) {
     throw new Error('Select at least one page to export.')
   }
 
   const output = await PDFDocument.create()
-  const documentCache = new Map()
   for (const page of pagesInGridOrder) {
     const source = findSourcePdf(page, pdfs)
     const sourceDocument = await loadSourceDocument(source, documentCache)
