@@ -1,16 +1,22 @@
 import type { PDFPageProxy } from 'pdfjs-dist'
 
-const MAX_THUMBNAIL_WIDTH = 320
-const MAX_THUMBNAIL_HEIGHT = 420
+const MAX_RENDER_DIMENSION = 1800
+const MAX_RENDER_PIXELS = 3_000_000
 
-export async function generateThumbnail(page: PDFPageProxy): Promise<string> {
-  const viewport = page.getViewport({ scale: 1 })
-  const scale = Math.min(
-    1,
-    MAX_THUMBNAIL_WIDTH / viewport.width,
-    MAX_THUMBNAIL_HEIGHT / viewport.height,
+export async function generateThumbnail(
+  page: PDFPageProxy,
+  rotation: number,
+): Promise<string> {
+  const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 3)
+  const unitViewport = page.getViewport({ scale: 1, rotation })
+  const resolutionScale = 2 * devicePixelRatio
+  const dimensionScale =
+    MAX_RENDER_DIMENSION / Math.max(unitViewport.width, unitViewport.height)
+  const pixelScale = Math.sqrt(
+    MAX_RENDER_PIXELS / (unitViewport.width * unitViewport.height),
   )
-  const scaledViewport = page.getViewport({ scale })
+  const scale = Math.min(resolutionScale, dimensionScale, pixelScale)
+  const viewport = page.getViewport({ scale, rotation })
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d', { alpha: false })
 
@@ -18,8 +24,8 @@ export async function generateThumbnail(page: PDFPageProxy): Promise<string> {
     throw new Error('Your browser could not prepare a canvas to render this page.')
   }
 
-  canvas.width = Math.max(1, Math.ceil(scaledViewport.width))
-  canvas.height = Math.max(1, Math.ceil(scaledViewport.height))
+  canvas.width = Math.max(1, Math.ceil(viewport.width))
+  canvas.height = Math.max(1, Math.ceil(viewport.height))
   context.fillStyle = '#ffffff'
   context.fillRect(0, 0, canvas.width, canvas.height)
 
@@ -27,10 +33,11 @@ export async function generateThumbnail(page: PDFPageProxy): Promise<string> {
     await page.render({
       canvas,
       canvasContext: context,
-      viewport: scaledViewport,
+      viewport,
+      intent: 'display',
     }).promise
 
-    return canvas.toDataURL('image/jpeg', 0.84)
+    return canvas.toDataURL('image/png')
   } catch {
     throw new Error('A page could not be rendered. The PDF may be damaged.')
   } finally {

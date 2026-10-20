@@ -13,6 +13,7 @@ interface PdfStore extends StoreSnapshot {
   past: StoreSnapshot[]
   future: StoreSnapshot[]
   addPdf: (pdf: UploadedPdf, pages: PdfPage[]) => void
+  restoreWorkspace: (workspace: StoreSnapshot) => void
   reorderPages: (activeId: string, overId: string) => void
   togglePageSelection: (pageId: string) => void
   setPageSelection: (pageIds: string[]) => void
@@ -68,6 +69,12 @@ export const usePdfStore = create<PdfStore>((set, get) => {
         selectedPageIds: current.selectedPageIds,
       })
     },
+    restoreWorkspace: (workspace) =>
+      set({
+        ...workspace,
+        past: [],
+        future: [],
+      }),
     reorderPages: (activeId, overId) => {
       const current = get()
       const activeIndex = current.pages.findIndex((page) => page.id === activeId)
@@ -121,7 +128,18 @@ export const usePdfStore = create<PdfStore>((set, get) => {
       const idsToRotate = new Set(pageIds)
       const pages = current.pages.map((page) =>
         idsToRotate.has(page.id)
-          ? { ...page, rotation: normalizeRotation(page.rotation + delta) }
+          ? (() => {
+              const rotation = normalizeRotation(page.rotation + delta)
+              const quarterTurnChanged =
+                Math.floor(normalizeRotation(page.rotation) / 90) % 2 !==
+                Math.floor(rotation / 90) % 2
+              return {
+                ...page,
+                rotation,
+                width: quarterTurnChanged ? page.height : page.width,
+                height: quarterTurnChanged ? page.width : page.height,
+              }
+            })()
           : page,
       )
       commit({ ...snapshot(current), pages })

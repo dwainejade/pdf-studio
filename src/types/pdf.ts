@@ -2,6 +2,21 @@ export interface UploadedPdf {
   id: string
   name: string
   file: File
+  importedAt: string
+  totalPages: number
+  metadata: PdfMetadata
+}
+
+export interface PdfMetadata {
+  title: string
+  author: string
+  subject: string
+  keywords: string
+  creationDate: string
+  modificationDate: string
+  creator: string
+  producer: string
+  version: string
 }
 
 export interface PdfPage {
@@ -11,6 +26,8 @@ export interface PdfPage {
   pageNumber: number
   rotation: number
   thumbnail: string
+  width: number
+  height: number
   label?: string
 }
 

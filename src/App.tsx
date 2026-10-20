@@ -1,11 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDropzone, type FileRejection } from 'react-dropzone'
-import { AlertCircle, ArrowDownToLine, FileText, Redo2, RotateCw, Trash2, Undo2, X } from 'lucide-react'
-import { Header } from './components/layout/Header'
+import {
+  AlertCircle,
+  ArrowDownToLine,
+  FileStack,
+  FileText,
+  LayoutGrid,
+  Redo2,
+  RotateCw,
+  Search,
+  Trash2,
+  Undo2,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react'
 import { PageGrid } from './components/page-grid/PageGrid'
+import { DocumentInspector } from './components/page-grid/DocumentInspector'
 import { ExportDrawer } from './components/export/ExportDrawer'
 import { loadPdfPages } from './lib/pdfLoader'
+import { loadWorkspace, savePdfFile, saveWorkspace } from './lib/workspaceDatabase'
 import { usePdfStore } from './store/pdfStore'
+import { useViewPreferences, type DetailSortKey } from './store/viewPreferences'
 import type { UploadError } from './types/pdf'
 import './App.css'
 
@@ -13,12 +29,17 @@ function App() {
   const [processingCount, setProcessingCount] = useState(0)
   const [errors, setErrors] = useState<UploadError[]>([])
   const [isExportOpen, setIsExportOpen] = useState(false)
+  const [inspectedPageId, setInspectedPageId] = useState<string | null>(null)
+  const [isWorkspaceReady, setIsWorkspaceReady] = useState(false)
+  const [storageError, setStorageError] = useState<string | null>(null)
+  const [isSavingWorkspace, setIsSavingWorkspace] = useState(false)
   const pages = usePdfStore((state) => state.pages)
   const pdfs = usePdfStore((state) => state.pdfs)
   const selectedPageIds = usePdfStore((state) => state.selectedPageIds)
   const canUndo = usePdfStore((state) => state.past.length > 0)
   const canRedo = usePdfStore((state) => state.future.length > 0)
   const addPdf = usePdfStore((state) => state.addPdf)
+  const restoreWorkspace = usePdfStore((state) => state.restoreWorkspace)
   const reorderPages = usePdfStore((state) => state.reorderPages)
   const togglePageSelection = usePdfStore((state) => state.togglePageSelection)
   const setPageSelection = usePdfStore((state) => state.setPageSelection)
@@ -28,12 +49,152 @@ function App() {
   const renamePage = usePdfStore((state) => state.renamePage)
   const undo = usePdfStore((state) => state.undo)
   const redo = usePdfStore((state) => state.redo)
+  const viewMode = useViewPreferences((state) => state.viewMode)
+  const thumbnailSize = useViewPreferences((state) => state.thumbnailSize)
+  const searchQuery = useViewPreferences((state) => state.searchQuery)
+  const detailSortKey = useViewPreferences((state) => state.detailSortKey)
+  const setViewMode = useViewPreferences((state) => state.setViewMode)
+  const setThumbnailSize = useViewPreferences((state) => state.setThumbnailSize)
+  const setSearchQuery = useViewPreferences((state) => state.setSearchQuery)
+  const setDetailSortKey = useViewPreferences((state) => state.setDetailSortKey)
   const selectedPageSet = useMemo(() => new Set(selectedPageIds), [selectedPageIds])
   const selectedPages = useMemo(
     () => pages.filter((page) => selectedPageSet.has(page.id)),
     [pages, selectedPageSet],
   )
   const allPagesSelected = pages.length > 0 && selectedPages.length === pages.length
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase()
+  const visiblePages = useMemo(() => {
+    if (!normalizedSearch) return pages
+    return pages.filter((page) => {
+      const metadata = pdfs.find((pdf) => pdf.id === page.sourcePdfId)?.metadata
+      return [
+        page.label,
+        page.sourcePdfName,
+        String(page.pageNumber),
+        metadata?.title,
+        metadata?.author,
+        metadata?.subject,
+        metadata?.keywords,
+        metadata?.creator,
+        metadata?.producer,
+      ].some((value) => value?.toLocaleLowerCase().includes(normalizedSearch))
+    })
+  }, [normalizedSearch, pages, pdfs])
+  const orderedVisiblePages = useMemo(() => {
+    if (viewMode !== 'detail' || detailSortKey === 'importOrder') return visiblePages
+    return [...visiblePages].sort((a, b) => {
+      const pdfA = pdfs.find((pdf) => pdf.id === a.sourcePdfId)
+      const pdfB = pdfs.find((pdf) => pdf.id === b.sourcePdfId)
+      if (detailSortKey === 'pageNumber') return a.pageNumber - b.pageNumber
+      if (detailSortKey === 'fileName') {
+        return a.sourcePdfName.localeCompare(b.sourcePdfName) || a.pageNumber - b.pageNumber
+      }
+      const metadataKey = detailSortKey === 'title' ? 'title' : 'author'
+      return (pdfA?.metadata[metadataKey] ?? '').localeCompare(pdfB?.metadata[metadataKey] ?? '') ||
+        a.sourcePdfName.localeCompare(b.sourcePdfName) ||
+        a.pageNumber - b.pageNumber
+    })
+  }, [detailSortKey, pdfs, viewMode, visiblePages])
+  const inspectedPage = pages.find((page) => page.id === inspectedPageId)
+  const inspectedPdf = inspectedPage
+    ? pdfs.find((pdf) => pdf.id === inspectedPage.sourcePdfId)
+    : undefined
+
+  const restoreLocalWorkspace = useCallback(async () => {
+    try {
+      const workspace = await loadWorkspace()
+      restoreWorkspace(workspace)
+      setStorageError(null)
+      setIsWorkspaceReady(true)
+    } catch (error) {
+      setStorageError(
+        error instanceof Error
+          ? error.message
+          : 'The local workspace could not be restored.',
+      )
+    }
+  }, [restoreWorkspace])
+
+  useEffect(() => {
+    let isCurrent = true
+    void loadWorkspace().then(
+      (workspace) => {
+        if (!isCurrent) return
+        restoreWorkspace(workspace)
+        setStorageError(null)
+        setIsWorkspaceReady(true)
+      },
+      (error: unknown) => {
+        if (!isCurrent) return
+        setStorageError(
+          error instanceof Error
+            ? error.message
+            : 'The local workspace could not be restored.',
+        )
+      },
+    )
+    return () => {
+      isCurrent = false
+    }
+  }, [restoreWorkspace])
+
+  useEffect(() => {
+    if (!isWorkspaceReady) return
+
+    let saveTimer: number | undefined
+    let saveQueue = Promise.resolve()
+    const persistLatestWorkspace = () => {
+      if (saveTimer !== undefined) {
+        window.clearTimeout(saveTimer)
+        saveTimer = undefined
+      }
+      const current = usePdfStore.getState()
+      setIsSavingWorkspace(true)
+      saveQueue = saveQueue
+        .then(() => saveWorkspace(current.pdfs, current.pages, current.selectedPageIds))
+        .then(() => {
+          setStorageError(null)
+          setIsSavingWorkspace(false)
+        })
+        .catch((error: unknown) => {
+          setStorageError(
+            error instanceof Error
+              ? error.message
+              : 'The local workspace could not be saved.',
+          )
+          setIsSavingWorkspace(false)
+        })
+    }
+    const unsubscribe = usePdfStore.subscribe((state) => {
+      if (saveTimer !== undefined) window.clearTimeout(saveTimer)
+      setIsSavingWorkspace(true)
+      saveTimer = window.setTimeout(() => {
+        saveTimer = undefined
+        saveQueue = saveQueue
+          .then(() => saveWorkspace(state.pdfs, state.pages, state.selectedPageIds))
+          .then(() => {
+            setStorageError(null)
+            setIsSavingWorkspace(false)
+          })
+          .catch((error: unknown) => {
+            setStorageError(
+              error instanceof Error
+                ? error.message
+                : 'The local workspace could not be saved.',
+            )
+            setIsSavingWorkspace(false)
+          })
+      }, 250)
+    })
+    window.addEventListener('pagehide', persistLatestWorkspace)
+
+    return () => {
+      unsubscribe()
+      if (saveTimer !== undefined) window.clearTimeout(saveTimer)
+      window.removeEventListener('pagehide', persistLatestWorkspace)
+    }
+  }, [isWorkspaceReady])
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -87,9 +248,19 @@ function App() {
     await Promise.all(
       files.map(async (file) => {
         const id = crypto.randomUUID()
+        const importedAt = new Date().toISOString()
         try {
-          const loadedPages = await loadPdfPages(file, id)
-          addPdf({ id, name: file.name, file }, loadedPages)
+          const loadedPdf = await loadPdfPages(file, id)
+          const uploadedPdf = {
+            id,
+            name: file.name,
+            file,
+            importedAt,
+            totalPages: loadedPdf.totalPages,
+            metadata: loadedPdf.metadata,
+          }
+          await savePdfFile(uploadedPdf)
+          addPdf(uploadedPdf, loadedPdf.pages)
         } catch (error) {
           setErrors((current) => [
             ...current,
@@ -125,6 +296,7 @@ function App() {
     accept: { 'application/pdf': ['.pdf'] },
     noClick: true,
     noKeyboard: true,
+    disabled: !isWorkspaceReady,
   })
 
   const hasSelection = selectedPageIds.length > 0
@@ -137,13 +309,21 @@ function App() {
       })}
     >
       <input {...getInputProps({ className: 'workspace-file-input' })} />
-      <Header
-        pageCount={pages.length}
-        pdfCount={pdfs.length}
-        onAddFiles={open}
-      />
       <main className="canvas">
         <div className="canvas-toolbar">
+          <div className="toolbar-brand">
+            <span className="toolbar-brand-mark">
+              <FileStack size={18} strokeWidth={1.8} />
+            </span>
+            <span className="toolbar-brand-name">PDF <strong>Studio</strong></span>
+            <span className="toolbar-divider" aria-hidden="true" />
+            <span className="toolbar-file-status">
+              <span className="status-dot" />
+              {pages.length > 0
+                ? `${pdfs.length} ${pdfs.length === 1 ? 'PDF' : 'PDFs'} · ${pages.length} ${pages.length === 1 ? 'page' : 'pages'}`
+                : 'Local workspace'}
+            </span>
+          </div>
           <div className="canvas-summary">
             <FileText size={15} />
             <span>
@@ -151,6 +331,15 @@ function App() {
                 ? `${pages.length} ${pages.length === 1 ? 'page' : 'pages'}`
                 : 'Workspace'}
             </span>
+            {!isWorkspaceReady && !storageError && (
+              <span className="canvas-processing">Restoring local workspace…</span>
+            )}
+            {isSavingWorkspace && (
+              <span className="canvas-processing">Saving locally…</span>
+            )}
+            {isWorkspaceReady && !isSavingWorkspace && !storageError && pages.length > 0 && (
+              <span className="workspace-saved-status">Saved on this device</span>
+            )}
             {processingCount > 0 && (
               <span className="canvas-processing">Processing PDFs…</span>
             )}
@@ -159,6 +348,86 @@ function App() {
             )}
           </div>
           <div className="workspace-actions">
+            <button
+              className="workspace-action-button add-files-button"
+              type="button"
+              disabled={!isWorkspaceReady}
+              onClick={open}
+            >
+              <FileText size={15} />
+              Add PDFs
+            </button>
+            <div className="toolbar-search">
+              <Search size={15} aria-hidden="true" />
+              <input
+                type="search"
+                aria-label="Search pages by label, source, page number, or PDF metadata"
+                placeholder="Search pages and metadata"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  aria-label="Clear page search"
+                  onClick={() => setSearchQuery('')}
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+            <div className="view-mode-switcher" role="group" aria-label="Page view mode">
+              <button
+                className={`view-mode-button${viewMode === 'grid' ? ' is-active' : ''}`}
+                type="button"
+                aria-label="Grid view"
+                aria-pressed={viewMode === 'grid'}
+                onClick={() => setViewMode('grid')}
+              >
+                <LayoutGrid size={15} />
+                <span>Grid</span>
+              </button>
+              <button
+                className={`view-mode-button${viewMode === 'detail' ? ' is-active' : ''}`}
+                type="button"
+                aria-label="Detail view"
+                aria-pressed={viewMode === 'detail'}
+                onClick={() => setViewMode('detail')}
+              >
+                <FileText size={15} />
+                <span>Detail</span>
+              </button>
+            </div>
+            {viewMode === 'detail' && (
+              <label className="detail-sort-control">
+                Sort
+                <select
+                  aria-label="Sort detail view"
+                  value={detailSortKey}
+                  onChange={(event) => setDetailSortKey(event.target.value as DetailSortKey)}
+                >
+                  <option value="importOrder">Import order</option>
+                  <option value="fileName">File name</option>
+                  <option value="pageNumber">Page number</option>
+                  <option value="title">Title</option>
+                  <option value="author">Author</option>
+                </select>
+              </label>
+            )}
+            <label className="thumbnail-size-control">
+              <ZoomOut size={14} aria-hidden="true" />
+              <input
+                type="range"
+                aria-label="Thumbnail size"
+                min="50"
+                max="200"
+                step="10"
+                value={thumbnailSize}
+                onChange={(event) => setThumbnailSize(Number(event.target.value))}
+              />
+              <ZoomIn size={14} aria-hidden="true" />
+              <output>{thumbnailSize}%</output>
+            </label>
             <button
               className="workspace-action-button"
               type="button"
@@ -184,6 +453,21 @@ function App() {
             </button>
           </div>
         </div>
+
+        {storageError && (
+          <section className="storage-error" role="alert">
+            <AlertCircle size={17} aria-hidden="true" />
+            <div>
+              <strong>Local workspace storage issue</strong>
+              <span>{storageError}</span>
+            </div>
+            {!isWorkspaceReady && (
+              <button type="button" onClick={() => void restoreLocalWorkspace()}>
+                Retry restore
+              </button>
+            )}
+          </section>
+        )}
 
         {errors.length > 0 && (
           <section className="error-list" aria-label="Upload errors" aria-live="polite">
@@ -213,13 +497,20 @@ function App() {
           </div>
         ) : (
           <PageGrid
-            pages={pages}
+            pages={orderedVisiblePages}
+            pdfs={pdfs}
             isProcessing={processingCount > 0}
             selectedPageIds={selectedPageIds}
+            viewMode={viewMode}
+            thumbnailSize={thumbnailSize}
+            searchQuery={normalizedSearch}
             onToggleSelection={togglePageSelection}
             onSetSelection={setPageSelection}
             onReorder={reorderPages}
             onRename={renamePage}
+            onInspectPage={setInspectedPageId}
+            onRotatePage={(pageId) => rotatePages([pageId], 90)}
+            onDeletePage={(pageId) => deletePages([pageId])}
           />
         )}
       </main>
@@ -246,6 +537,13 @@ function App() {
             <span>Delete</span>
           </button>
         </div>
+      )}
+      {inspectedPage && inspectedPdf && (
+        <DocumentInspector
+          page={inspectedPage}
+          pdf={inspectedPdf}
+          onClose={() => setInspectedPageId(null)}
+        />
       )}
 
       {isDragActive && (
