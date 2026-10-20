@@ -14,7 +14,7 @@ interface PdfStore extends StoreSnapshot {
   future: StoreSnapshot[]
   addPdf: (pdf: UploadedPdf, pages: PdfPage[]) => void
   restoreWorkspace: (workspace: StoreSnapshot) => void
-  reorderPages: (activeId: string, overId: string, placement?: 'before' | 'after') => void
+  reorderPages: (activeId: string, overId: string) => void
   togglePageSelection: (pageId: string) => void
   setPageSelection: (pageIds: string[]) => void
   clearSelection: () => void
@@ -75,7 +75,7 @@ export const usePdfStore = create<PdfStore>((set, get) => {
         past: [],
         future: [],
       }),
-    reorderPages: (activeId, overId, placement) => {
+    reorderPages: (activeId, overId) => {
       const current = get()
       const activeIndex = current.pages.findIndex((page) => page.id === activeId)
       const overIndex = current.pages.findIndex((page) => page.id === overId)
@@ -83,12 +83,7 @@ export const usePdfStore = create<PdfStore>((set, get) => {
 
       const pages = [...current.pages]
       const [activePage] = pages.splice(activeIndex, 1)
-      if (placement) {
-        const targetIndex = pages.findIndex((page) => page.id === overId)
-        pages.splice(placement === 'after' ? targetIndex + 1 : targetIndex, 0, activePage)
-      } else {
-        pages.splice(overIndex, 0, activePage)
-      }
+      pages.splice(overIndex, 0, activePage)
       commit({ ...snapshot(current), pages })
     },
     togglePageSelection: (pageId) => {
