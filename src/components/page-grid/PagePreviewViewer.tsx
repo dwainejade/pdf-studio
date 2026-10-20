@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import type { PdfPage, UploadedPdf } from '../../types/pdf'
-import { loadPageThumbnail, renderFullPage } from '../../lib/pdfThumbnailCache'
+import { peekPageBitmap, renderFullPage } from '../../lib/pdfThumbnailCache'
 
 interface PagePreviewViewerProps {
   pages: PdfPage[]
@@ -23,7 +23,6 @@ export function PagePreviewViewer({ pages, pdfs, pageId, onNavigate, onClose }: 
   const dialogRef = useRef<HTMLDivElement>(null)
   const [box, setBox] = useState(stageBox)
   const [rendered, setRendered] = useState<{ key: string; failed: boolean }>()
-  const [placeholder, setPlaceholder] = useState<{ key: string; src: string }>()
   const index = pages.findIndex((page) => page.id === pageId)
   const page = pages[index]
   const sourcePdf = page && pdfs.find((pdf) => pdf.id === page.sourcePdfId)
@@ -70,24 +69,18 @@ export function PagePreviewViewer({ pages, pdfs, pageId, onNavigate, onClose }: 
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [nextId, onClose, onNavigate, previousId])
 
-  // The cached grid thumbnail shows instantly while the full-resolution render runs.
-  useEffect(() => {
-    if (!page || !sourcePdf) return
-    let isCurrent = true
-    void loadPageThumbnail(page.sourcePdfId, sourcePdf.file, page.pageNumber, page.rotation).then(
-      (src) => {
-        if (isCurrent) setPlaceholder({ key: pageKey, src })
-      },
-      () => {},
-    )
-    return () => {
-      isCurrent = false
-    }
-  }, [page, pageKey, sourcePdf])
-
   useEffect(() => {
     const canvas = canvasRef.current
     if (!page || !sourcePdf || !canvas) return
+    // An already-rendered grid thumbnail shows instantly while the sharp render runs.
+    const placeholder = peekPageBitmap(page.sourcePdfId, page.pageNumber, page.rotation)
+    // Hide the previous page's pixels when there is nothing to show in their place.
+    canvas.style.visibility = placeholder ? 'visible' : 'hidden'
+    if (placeholder) {
+      canvas.width = placeholder.width
+      canvas.height = placeholder.height
+      canvas.getContext('2d')?.drawImage(placeholder, 0, 0)
+    }
     const render = renderFullPage(
       page.sourcePdfId,
       sourcePdf.file,
@@ -97,7 +90,10 @@ export function PagePreviewViewer({ pages, pdfs, pageId, onNavigate, onClose }: 
       canvas,
     )
     render.promise.then(
-      () => setRendered({ key: renderKey, failed: false }),
+      () => {
+        canvas.style.visibility = 'visible'
+        setRendered({ key: renderKey, failed: false })
+      },
       (error: unknown) => {
         if (error instanceof Error && error.name === 'RenderingCancelledException') return
         setRendered({ key: renderKey, failed: true })
@@ -108,7 +104,6 @@ export function PagePreviewViewer({ pages, pdfs, pageId, onNavigate, onClose }: 
 
   if (!page) return null
   const showFailure = rendered?.key === renderKey && rendered.failed
-  const showPlaceholder = isLoading && placeholder?.key === pageKey
 
   return (
     <div
@@ -131,13 +126,9 @@ export function PagePreviewViewer({ pages, pdfs, pageId, onNavigate, onClose }: 
         </button>
       </header>
       <div className="page-viewer-stage" onClick={onClose}>
-        {showPlaceholder && (
-          <img className="page-viewer-image is-placeholder" src={placeholder.src} alt="" />
-        )}
         <canvas
           ref={canvasRef}
           className="page-viewer-image"
-          hidden={isLoading}
           onClick={(event) => event.stopPropagation()}
         />
         {showFailure && <span className="page-viewer-message">This page could not be rendered.</span>}

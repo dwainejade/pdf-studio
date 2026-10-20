@@ -445,7 +445,6 @@ export function PageGrid({
             style={{
               '--page-card-min-width': `${174 * thumbnailSize / 100}px`,
               '--page-preview-height': `${224 * thumbnailSize / 100}px`,
-              '--page-preview-padding': `${14 * thumbnailSize / 100}px`,
             } as CSSProperties}
             aria-label="PDF pages"
             onPointerDown={handleGridPointerDown}
