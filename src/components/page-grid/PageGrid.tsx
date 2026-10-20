@@ -143,6 +143,11 @@ function PageCard({
       onDragOver={(event) => onDragOverPage(page.id, event)}
       onKeyDown={handleKeyDown}
       onClick={handleCardClick}
+      onDoubleClick={(event) => {
+        // Double-clicking inside the rename box selects a word; it should not open the viewer.
+        if (event.target instanceof HTMLElement && event.target.closest('input, button')) return
+        onViewPage(page.id)
+      }}
       data-page-id={page.id}
       aria-label={`Page ${page.pageNumber} from ${page.sourcePdfName}${isSelected ? ', selected' : ''}. Use arrow keys to reorder.`}
     >

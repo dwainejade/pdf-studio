@@ -506,6 +506,8 @@ function App() {
           pdfs={pdfs}
           pageId={viewerPageId}
           onNavigate={setViewerPageId}
+          onRotate={(pageId) => rotatePages([pageId], 90)}
+          onDelete={(pageId) => deletePages([pageId])}
           onClose={closeViewer}
         />
       )}

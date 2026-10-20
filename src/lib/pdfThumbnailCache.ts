@@ -298,3 +298,21 @@ export function renderFullPage(
     },
   }
 }
+
+const baseRotationByPage = new Map<string, number>()
+
+/**
+ * The rotation a page's grid thumbnail was first rendered at. Later rotations are shown by
+ * turning that image rather than rendering again, so the cached image stays valid.
+ */
+export function thumbnailBaseRotation(
+  sourcePdfId: string,
+  pageNumber: number,
+  currentRotation: number,
+): number {
+  const key = `${sourcePdfId}:${pageNumber}`
+  const existing = baseRotationByPage.get(key)
+  if (existing !== undefined) return existing
+  baseRotationByPage.set(key, currentRotation)
+  return currentRotation
+}
