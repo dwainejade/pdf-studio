@@ -5,6 +5,7 @@ import {
   ArrowDownToLine,
   FileStack,
   FileText,
+  Info,
   LayoutGrid,
   Redo2,
   RotateCw,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react'
 import { PageGrid } from './components/page-grid/PageGrid'
 import { DocumentInspector } from './components/page-grid/DocumentInspector'
+import { PagePreviewViewer } from './components/page-grid/PagePreviewViewer'
 import { ExportDrawer } from './components/export/ExportDrawer'
 import { loadPdfPages } from './lib/pdfLoader'
 import { loadWorkspace, savePdfFile, saveWorkspace } from './lib/workspaceDatabase'
@@ -30,6 +32,8 @@ function App() {
   const [errors, setErrors] = useState<UploadError[]>([])
   const [isExportOpen, setIsExportOpen] = useState(false)
   const [inspectedPageId, setInspectedPageId] = useState<string | null>(null)
+  const [isInspectorOpen, setIsInspectorOpen] = useState(false)
+  const [viewerPageId, setViewerPageId] = useState<string | null>(null)
   const [isWorkspaceReady, setIsWorkspaceReady] = useState(false)
   const [storageError, setStorageError] = useState<string | null>(null)
   const [isSavingWorkspace, setIsSavingWorkspace] = useState(false)
@@ -300,6 +304,7 @@ function App() {
   })
 
   const hasSelection = selectedPageIds.length > 0
+  const closeViewer = useCallback(() => setViewerPageId(null), [])
 
   return (
     <div
@@ -436,6 +441,16 @@ function App() {
             >
               {allPagesSelected ? 'Deselect All' : 'Select All'}
             </button>
+            <button
+              className={`workspace-action-icon${isInspectorOpen ? ' is-active' : ''}`}
+              type="button"
+              aria-label="Toggle inspector"
+              aria-pressed={isInspectorOpen}
+              title="Inspector"
+              onClick={() => setIsInspectorOpen((open) => !open)}
+            >
+              <Info size={16} />
+            </button>
             <button className="workspace-action-icon" type="button" aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" disabled={!canUndo} onClick={undo}>
               <Undo2 size={16} />
             </button>
@@ -509,6 +524,7 @@ function App() {
             onReorder={reorderPages}
             onRename={renamePage}
             onInspectPage={setInspectedPageId}
+            onViewPage={setViewerPageId}
             onRotatePage={(pageId) => rotatePages([pageId], 90)}
             onDeletePage={(pageId) => deletePages([pageId])}
           />
@@ -538,11 +554,20 @@ function App() {
           </button>
         </div>
       )}
-      {inspectedPage && inspectedPdf && (
+      {isInspectorOpen && (
         <DocumentInspector
           page={inspectedPage}
           pdf={inspectedPdf}
-          onClose={() => setInspectedPageId(null)}
+          onClose={() => setIsInspectorOpen(false)}
+        />
+      )}
+      {viewerPageId && (
+        <PagePreviewViewer
+          pages={orderedVisiblePages}
+          pdfs={pdfs}
+          pageId={viewerPageId}
+          onNavigate={setViewerPageId}
+          onClose={closeViewer}
         />
       )}
 

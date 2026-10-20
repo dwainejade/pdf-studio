@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { FileWarning } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { FileWarning, Maximize2 } from 'lucide-react'
 import { loadPageThumbnail } from '../../lib/pdfThumbnailCache'
 
 interface PageThumbnailProps {
@@ -8,6 +8,8 @@ interface PageThumbnailProps {
   file: File
   pageNumber: number
   rotation: number
+  onExpand?: () => void
+  children?: ReactNode
 }
 
 export function PageThumbnail({
@@ -16,6 +18,8 @@ export function PageThumbnail({
   file,
   pageNumber,
   rotation,
+  onExpand,
+  children,
 }: PageThumbnailProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [isVisible, setIsVisible] = useState(false)
@@ -104,6 +108,22 @@ export function PageThumbnail({
       ) : (
         <span className="thumbnail-loading" aria-hidden="true" />
       )}
+      {onExpand && (
+        <button
+          type="button"
+          className="page-expand-button"
+          aria-label={`View page ${pageNumber} full screen`}
+          title="Full screen"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation()
+            onExpand()
+          }}
+        >
+          <Maximize2 size={14} />
+        </button>
+      )}
+      {children}
     </div>
   )
 }

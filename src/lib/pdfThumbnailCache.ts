@@ -1,7 +1,8 @@
 import * as pdfjs from 'pdfjs-dist'
-import type { PDFDocumentProxy } from 'pdfjs-dist'
+import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import { generateThumbnail } from './thumbnailGenerator'
+import { PDFJS_ASSET_OPTIONS } from './pdfjsOptions'
+import { fullPageScale, generateThumbnail } from './thumbnailGenerator'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -40,7 +41,7 @@ function getDocument(sourcePdfId: string, file: File): Promise<PDFDocumentProxy>
   }
 
   const documentPromise = file.arrayBuffer().then((buffer) =>
-    pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise,
+    pdfjs.getDocument({ data: new Uint8Array(buffer), ...PDFJS_ASSET_OPTIONS }).promise,
   )
   documentCache.set(sourcePdfId, documentPromise)
   void documentPromise.catch(() => {
@@ -107,4 +108,61 @@ export function loadPageThumbnail(
     },
   )
   return thumbnail
+}
+
+export interface FullPageRender {
+  promise: Promise<void>
+  cancel: () => void
+}
+
+/** Renders one page sharp enough to fill `target` CSS pixels, drawing into `output` only once finished. */
+export function renderFullPage(
+  sourcePdfId: string,
+  file: File,
+  pageNumber: number,
+  rotation: number,
+  target: { width: number; height: number },
+  output: HTMLCanvasElement,
+): FullPageRender {
+  let cancelled = false
+  let task: RenderTask | undefined
+
+  const promise = (async () => {
+    const pdfDocument = await getDocument(sourcePdfId, file)
+    const page = await pdfDocument.getPage(pageNumber)
+    try {
+      if (cancelled) return
+      const viewport = page.getViewport({
+        scale: fullPageScale(page.getViewport({ scale: 1, rotation }), target),
+        rotation,
+      })
+      const buffer = document.createElement('canvas')
+      buffer.width = Math.max(1, Math.ceil(viewport.width))
+      buffer.height = Math.max(1, Math.ceil(viewport.height))
+      const context = buffer.getContext('2d', { alpha: false })
+      if (!context) throw new Error('Your browser could not prepare a canvas to render this page.')
+      context.fillStyle = '#ffffff'
+      context.fillRect(0, 0, buffer.width, buffer.height)
+
+      task = page.render({ canvas: buffer, canvasContext: context, viewport, intent: 'display' })
+      await task.promise
+      if (cancelled) return
+
+      output.width = buffer.width
+      output.height = buffer.height
+      output.getContext('2d')?.drawImage(buffer, 0, 0)
+      buffer.width = 0
+      buffer.height = 0
+    } finally {
+      page.cleanup()
+    }
+  })()
+
+  return {
+    promise,
+    cancel: () => {
+      cancelled = true
+      task?.cancel()
+    },
+  }
 }

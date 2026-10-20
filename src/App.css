@@ -2,7 +2,7 @@
   position: relative;
   display: flex;
   min-height: 100vh;
-  flex-direction: column;
+  flex-direction: row;
   background: linear-gradient(135deg, #24252b 0%, #303139 48%, #1e2026 100%);
   color: #e7e5ec;
   background-image:
@@ -75,6 +75,7 @@
 .canvas {
   position: relative;
   width: 100%;
+  min-width: 0;
   min-height: 100vh;
   flex: 1;
   padding: 0 28px 40px;
@@ -444,6 +445,7 @@
 }
 
 .page-preview {
+  position: relative;
   display: grid;
   height: clamp(170px, var(--page-preview-height, 224px), 448px);
   padding: clamp(10px, var(--page-preview-padding, 14px), 26px);
@@ -677,19 +679,190 @@
 }
 
 .document-inspector {
-  position: fixed;
-  z-index: 20;
-  top: 78px;
-  right: 18px;
-  bottom: 18px;
-  width: min(360px, calc(100vw - 36px));
+  position: sticky;
+  z-index: 9;
+  top: 0;
+  flex: 0 0 340px;
+  width: 340px;
+  height: 100vh;
   overflow: auto;
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 15px;
+  border-left: 1px solid rgba(255, 255, 255, 0.13);
   background: rgba(37, 37, 45, 0.97);
   padding: 18px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(18px);
+}
+
+.inspector-empty {
+  margin: 18px 0 0;
+  color: #aaa8b4;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workspace-action-icon.is-active {
+  border-color: rgba(196, 183, 245, 0.5);
+  background: rgba(159, 136, 255, 0.22);
+  color: #e4dcff;
+}
+
+.app-shell:has(.document-inspector) .page-action-toolbar {
+  right: 364px;
+}
+
+.page-expand-button {
+  position: absolute;
+  z-index: 2;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid rgba(26, 19, 44, 0.3);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #3b3552;
+  cursor: pointer;
+  opacity: 0;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.16);
+  transition: opacity 120ms ease, background 120ms ease;
+}
+
+.page-card:hover .page-expand-button,
+.page-expand-button:focus-visible {
+  opacity: 1;
+}
+
+.page-expand-button:hover {
+  background: #fff;
+  color: #5b46c8;
+}
+
+@media (hover: none) {
+  .page-expand-button {
+    opacity: 1;
+  }
+}
+
+.page-viewer {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(12, 12, 17, 0.96);
+  outline: none;
+}
+
+.page-viewer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 18px;
+  color: #e7e5ec;
+}
+
+.page-viewer-title {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.page-viewer-title strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-viewer-title span {
+  color: #aaa8b4;
+  font-size: 11px;
+}
+
+.page-viewer-close,
+.page-viewer-nav {
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f0eef5;
+  cursor: pointer;
+}
+
+.page-viewer-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+
+.page-viewer-close:hover,
+.page-viewer-nav:hover:not(:disabled) {
+  background: rgba(159, 136, 255, 0.3);
+}
+
+.page-viewer-stage {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  place-items: center;
+  padding: 0 80px 24px;
+}
+
+.page-viewer-image {
+  grid-area: 1 / 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  background: transparent;
+}
+
+.page-viewer-image.is-placeholder {
+  filter: blur(1px);
+}
+
+.page-viewer-spinner,
+.page-viewer-message {
+  position: absolute;
+  color: #c1b3f4;
+  font-size: 12px;
+}
+
+.page-viewer-nav {
+  position: absolute;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  transform: translateY(-50%);
+}
+
+.page-viewer-nav:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.page-viewer-nav.is-previous {
+  left: 18px;
+}
+
+.page-viewer-nav.is-next {
+  right: 18px;
+}
+
+@media (max-width: 760px) {
+  .page-viewer-stage {
+    padding: 0 12px 76px;
+  }
+
+  .page-viewer-nav {
+    top: auto;
+    bottom: 14px;
+    transform: none;
+  }
 }
 
 .inspector-header {
@@ -1393,13 +1566,22 @@
     padding: 11px;
   }
 
+  .app-shell {
+    flex-direction: column;
+  }
+
   .document-inspector {
-    top: auto;
-    right: 10px;
-    bottom: 10px;
-    left: 10px;
+    position: static;
+    flex: none;
     width: auto;
-    max-height: 70vh;
+    height: auto;
+    max-height: 60vh;
+    border-top: 1px solid rgba(255, 255, 255, 0.13);
+    border-left: 0;
+  }
+
+  .app-shell:has(.document-inspector) .page-action-toolbar {
+    right: 24px;
   }
 
   .canvas-toolbar {
@@ -1449,5 +1631,56 @@
   *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+.page-dragout-handle {
+  position: absolute;
+  z-index: 2;
+  right: 10px;
+  bottom: 10px;
+  display: inline-flex;
+  min-width: 26px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 1px solid rgba(26, 19, 44, 0.3);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #3b3552;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: grab;
+  opacity: 0;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.16);
+  transition: opacity 120ms ease;
+}
+
+.page-card:hover .page-dragout-handle,
+.page-dragout-handle:focus-visible {
+  opacity: 1;
+}
+
+.page-dragout-handle.is-preparing {
+  cursor: progress;
+}
+
+.page-dragout-handle.has-failed {
+  color: #b3261e;
+}
+
+.page-dragout-handle .spin {
+  animation: dragout-spin 0.9s linear infinite;
+}
+
+@keyframes dragout-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (hover: none) {
+  .page-dragout-handle {
+    display: none;
   }
 }

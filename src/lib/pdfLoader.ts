@@ -1,5 +1,6 @@
 import * as pdfjs from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import { PDFJS_ASSET_OPTIONS } from './pdfjsOptions'
 import type { PdfMetadata, PdfPage } from '../types/pdf'
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
@@ -39,7 +40,7 @@ export async function loadPdfPages(file: File, sourcePdfId: string): Promise<Loa
 
   try {
     const data = new Uint8Array(await file.arrayBuffer())
-    loadingTask = pdfjs.getDocument({ data })
+    loadingTask = pdfjs.getDocument({ data, ...PDFJS_ASSET_OPTIONS })
     document = await loadingTask.promise
 
     if (document.numPages === 0) {

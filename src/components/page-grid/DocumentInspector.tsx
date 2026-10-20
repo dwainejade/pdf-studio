@@ -2,8 +2,8 @@ import { X } from 'lucide-react'
 import type { PdfPage, UploadedPdf } from '../../types/pdf'
 
 interface DocumentInspectorProps {
-  page: PdfPage
-  pdf: UploadedPdf
+  page?: PdfPage
+  pdf?: UploadedPdf
   onClose: () => void
 }
 
@@ -23,6 +23,27 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
 }
 
 export function DocumentInspector({ page, pdf, onClose }: DocumentInspectorProps) {
+  const closeButton = (
+    <button type="button" aria-label="Close metadata panel" onClick={onClose}>
+      <X size={17} />
+    </button>
+  )
+
+  if (!page || !pdf) {
+    return (
+      <aside className="document-inspector" aria-label="Selected page and document information">
+        <header className="inspector-header">
+          <div>
+            <span className="inspector-eyebrow">INSPECTOR</span>
+            <h2>No page selected</h2>
+          </div>
+          {closeButton}
+        </header>
+        <p className="inspector-empty">Click a page to see its document and page details.</p>
+      </aside>
+    )
+  }
+
   return (
     <aside className="document-inspector" aria-label="Selected page and document information">
       <header className="inspector-header">
@@ -30,9 +51,7 @@ export function DocumentInspector({ page, pdf, onClose }: DocumentInspectorProps
           <span className="inspector-eyebrow">INSPECTOR</span>
           <h2>Page {page.pageNumber}</h2>
         </div>
-        <button type="button" aria-label="Close metadata panel" onClick={onClose}>
-          <X size={17} />
-        </button>
+        {closeButton}
       </header>
 
       <section className="inspector-section">

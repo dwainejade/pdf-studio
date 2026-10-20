@@ -29,6 +29,7 @@ import type { PdfPage, UploadedPdf } from '../../types/pdf'
 import type { PageViewMode } from '../../store/viewPreferences'
 import { individualFilename } from '../../lib/export/filenames'
 import { PageThumbnail } from './PageThumbnail'
+import { DragOutHandle } from './DragOutHandle'
 
 interface PageGridProps {
   pages: PdfPage[]
@@ -43,6 +44,7 @@ interface PageGridProps {
   onReorder: (activeId: string, overId: string) => void
   onRename: (pageId: string, label: string) => void
   onInspectPage: (pageId: string) => void
+  onViewPage: (pageId: string) => void
   onRotatePage: (pageId: string) => void
   onDeletePage: (pageId: string) => void
 }
@@ -52,12 +54,15 @@ interface PageCardProps {
   index: number
   pages: PdfPage[]
   sourcePdf: UploadedPdf
+  pdfs: UploadedPdf[]
   isSelected: boolean
   viewMode: PageViewMode
+  getDragPages: (pageId: string) => PdfPage[]
   onSelectPage: (pageId: string, modifiers: { extend: boolean; toggle: boolean }) => void
   onReorder: (activeId: string, overId: string) => void
   onRename: (pageId: string, label: string) => void
   onInspectPage: (pageId: string) => void
+  onViewPage: (pageId: string) => void
   onRotatePage: (pageId: string) => void
   onDeletePage: (pageId: string) => void
 }
@@ -67,12 +72,15 @@ function PageCard({
   index,
   pages,
   sourcePdf,
+  pdfs,
   isSelected,
   viewMode,
+  getDragPages,
   onSelectPage,
   onReorder,
   onRename,
   onInspectPage,
+  onViewPage,
   onRotatePage,
   onDeletePage,
 }: PageCardProps) {
@@ -167,7 +175,10 @@ function PageCard({
         file={sourcePdf.file}
         pageNumber={page.pageNumber}
         rotation={page.rotation}
-      />
+        onExpand={() => onViewPage(page.id)}
+      >
+        <DragOutHandle page={page} pdfs={pdfs} getDragPages={() => getDragPages(page.id)} />
+      </PageThumbnail>
       <div className={`page-metadata${viewMode === 'detail' ? ' detail-page-info' : ''}`}>
         <span className="page-number">{page.pageNumber}</span>
         <div className="page-source" title={page.sourcePdfName}>
@@ -293,6 +304,7 @@ export function PageGrid({
   onReorder,
   onRename,
   onInspectPage,
+  onViewPage,
   onRotatePage,
   onDeletePage,
 }: PageGridProps) {
@@ -316,6 +328,10 @@ export function PageGrid({
     () => new Set(selectedPageIds),
     [selectedPageIds],
   )
+  const getDragPages = (pageId: string) =>
+    selectedSet.has(pageId) && selectedSet.size > 1
+      ? pages.filter((page) => selectedSet.has(page.id))
+      : pages.filter((page) => page.id === pageId)
   const selectionAnchorId = useRef<string | null>(null)
   const [columnWidths, setColumnWidths] = useState([150, 190, 380, 180, 220, 150])
   const resizeRef = useRef<{ index: number; startX: number; width: number } | null>(null)
@@ -502,12 +518,15 @@ export function PageGrid({
                   index={index}
                   pages={pages}
                   sourcePdf={sourcePdf}
+                  pdfs={pdfs}
+                  getDragPages={getDragPages}
                   isSelected={selectedSet.has(page.id)}
                   viewMode={viewMode}
                   onSelectPage={selectPage}
                   onReorder={onReorder}
                   onRename={onRename}
                   onInspectPage={onInspectPage}
+                  onViewPage={onViewPage}
                   onRotatePage={onRotatePage}
                   onDeletePage={onDeletePage}
                 />

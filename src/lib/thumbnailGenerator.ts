@@ -1,7 +1,23 @@
-import type { PDFPageProxy } from 'pdfjs-dist'
+import type { PDFPageProxy, PageViewport } from 'pdfjs-dist'
 
-const MAX_RENDER_DIMENSION = 1800
-const MAX_RENDER_PIXELS = 3_000_000
+const MAX_RENDER_DIMENSION = 1600
+const MAX_RENDER_PIXELS = 2_000_000
+const MAX_FULL_DIMENSION = 6000
+const MAX_FULL_PIXELS = 20_000_000
+
+/** Scale that fits a page inside `target` CSS pixels at device resolution, within canvas memory limits. */
+export function fullPageScale(
+  unitViewport: PageViewport,
+  target: { width: number; height: number },
+): number {
+  const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 3)
+  return Math.min(
+    (target.width * devicePixelRatio) / unitViewport.width,
+    (target.height * devicePixelRatio) / unitViewport.height,
+    MAX_FULL_DIMENSION / Math.max(unitViewport.width, unitViewport.height),
+    Math.sqrt(MAX_FULL_PIXELS / (unitViewport.width * unitViewport.height)),
+  )
+}
 
 export async function generateThumbnail(
   page: PDFPageProxy,
@@ -37,7 +53,7 @@ export async function generateThumbnail(
       intent: 'display',
     }).promise
 
-    return canvas.toDataURL('image/png')
+    return canvas.toDataURL('image/webp', 0.95)
   } catch {
     throw new Error('A page could not be rendered. The PDF may be damaged.')
   } finally {
