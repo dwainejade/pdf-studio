@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { ChevronLeft, ChevronRight, RotateCw, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { flushSync } from 'react-dom'
+import { ChevronLeft, ChevronRight, RotateCcw, RotateCw, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react'
 import type { PdfPage, UploadedPdf } from '../../types/pdf'
-import { peekPageBitmap, renderFullPage } from '../../lib/pdfThumbnailCache'
+import { peekPageBitmap, renderFullPage, thumbnailBaseRotation } from '../../lib/pdfThumbnailCache'
 
 interface PagePreviewViewerProps {
   pages: PdfPage[]
   pdfs: UploadedPdf[]
   pageId: string
   onNavigate: (pageId: string) => void
-  onRotate: (pageId: string) => void
+  onRotate: (pageId: string, delta: number) => void
   onDelete: (pageId: string) => void
   onClose: () => void
 }
 
 const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4]
 const ZOOM_ANIMATION_MS = 220
+const ROTATE_ANIMATION_MS = 320
 const SHARP_RENDER_DELAY_MS = 250
 const STAGE_SIDE_PADDING = 80
 const BARS_HEIGHT = 58 + 78
@@ -48,17 +50,48 @@ export function PagePreviewViewer({
   const [isZoomAnimating, setIsZoomAnimating] = useState(false)
   const [aspect, setAspect] = useState(0.77)
   const [rendered, setRendered] = useState<{ key: string; failed: boolean }>()
+  // A turn is animated on the pixels already on screen; the re-render at the new rotation swaps in afterwards.
+  const motionRef = useRef({ pageId, prevRotation: 0, visual: 0, animEnd: 0 })
+  const layoutRef = useRef({ box: { width: 0, height: 0 }, aspect: 0.77 })
   const index = pages.findIndex((page) => page.id === pageId)
   const page = pages[index]
   const sourcePdf = page && pdfs.find((pdf) => pdf.id === page.sourcePdfId)
-  const pageKey = page ? `${page.id}:${page.rotation}` : ''
-  const isLoading = rendered?.key !== pageKey
+  const rotation = page?.rotation
+  const isLoading = rendered?.key !== pageId
   const previousId = pages[index - 1]?.id
   const nextId = pages[index + 1]?.id
 
   // Page size at 100%: the whole page fits the stage.
   const fitWidth = Math.min(box.width, box.height * aspect)
   const fitHeight = fitWidth / aspect
+
+  useEffect(() => {
+    layoutRef.current = { box, aspect }
+  }, [box, aspect])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const motion = motionRef.current
+    if (rotation === undefined || !canvas) return
+    if (motion.pageId !== pageId) {
+      motion.pageId = pageId
+      motion.prevRotation = rotation
+      motion.visual = 0
+      return
+    }
+    const turned = ((((rotation - motion.prevRotation) % 360) + 540) % 360) - 180
+    motion.prevRotation = rotation
+    if (turned === 0) return
+
+    motion.visual += turned
+    const { box: stage, aspect: pixelAspect } = layoutRef.current
+    const width = Math.min(stage.width, stage.height * pixelAspect)
+    const isSideways = Math.round(motion.visual / 90) % 2 !== 0
+    const scale = isSideways ? Math.min(stage.width, stage.height / pixelAspect) / (width / pixelAspect) : 1
+    canvas.style.transition = `transform ${ROTATE_ANIMATION_MS}ms cubic-bezier(0.2, 0.8, 0.2, 1)`
+    canvas.style.transform = `rotate(${motion.visual}deg) scale(${scale})`
+    motion.animEnd = performance.now() + ROTATE_ANIMATION_MS
+  }, [pageId, rotation])
 
   useEffect(() => {
     if (!page) onClose()
@@ -144,13 +177,14 @@ export function PagePreviewViewer({
       } else if (event.key === '+' || event.key === '=') stepZoom(1)
       else if (event.key === '-') stepZoom(-1)
       else if (event.key === '0') changeZoom(1)
+      else if (event.key.toLowerCase() === 'r' && page) onRotate(page.id, event.shiftKey ? -90 : 90)
       else return
       event.preventDefault()
       event.stopPropagation()
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [changeZoom, nextId, onClose, onNavigate, previousId, stepZoom])
+  }, [changeZoom, nextId, onClose, onNavigate, onRotate, page, previousId, stepZoom])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -167,39 +201,68 @@ export function PagePreviewViewer({
   useEffect(() => {
     const canvas = canvasRef.current
     if (!page || !sourcePdf || !canvas) return
-    // An already-rendered grid thumbnail shows instantly while the sharp render runs.
-    const placeholder = peekPageBitmap(page.sourcePdfId, page.pageNumber, page.rotation)
-    if (placeholder && canvas.dataset.pageKey !== pageKey) {
-      canvas.width = placeholder.width
-      canvas.height = placeholder.height
-      canvas.getContext('2d')?.drawImage(placeholder, 0, 0)
-      setAspect(placeholder.width / placeholder.height)
+    if (canvas.dataset.pageId !== pageId) {
+      // First draw for this page: reset any turn left over from the previous one.
+      canvas.style.transition = 'none'
+      canvas.style.transform = 'none'
+      motionRef.current.visual = 0
+      // An already-rendered grid thumbnail shows instantly while the sharp render runs.
+      const base = thumbnailBaseRotation(page.sourcePdfId, page.pageNumber, page.rotation)
+      const placeholder =
+        base === page.rotation ? peekPageBitmap(page.sourcePdfId, page.pageNumber, base) : undefined
+      if (placeholder) {
+        canvas.width = placeholder.width
+        canvas.height = placeholder.height
+        canvas.getContext('2d')?.drawImage(placeholder, 0, 0)
+        setAspect(placeholder.width / placeholder.height)
+      }
+      // Hide the previous page pixels when there is nothing to show in their place.
+      canvas.style.visibility = placeholder ? 'visible' : 'hidden'
+      canvas.dataset.pageId = pageId
     }
-    // Hide the previous page's pixels when there is nothing to show in their place.
-    if (canvas.dataset.pageKey !== pageKey) canvas.style.visibility = placeholder ? 'visible' : 'hidden'
 
+    // Render off-screen so the new pixels only appear once any turn animation has finished.
+    const buffer = document.createElement('canvas')
+    let isCurrent = true
     const render = renderFullPage(
       page.sourcePdfId,
       sourcePdf.file,
       page.pageNumber,
       page.rotation,
       { width: box.width * sharpZoom, height: box.height * sharpZoom },
-      canvas,
+      buffer,
     )
-    render.promise.then(
-      () => {
-        canvas.dataset.pageKey = pageKey
+    render.promise
+      .then(async () => {
+        const remaining = motionRef.current.animEnd - performance.now()
+        if (remaining > 0) await new Promise((resolve) => window.setTimeout(resolve, remaining))
+        if (!isCurrent) return
+        canvas.width = buffer.width
+        canvas.height = buffer.height
+        canvas.getContext('2d')?.drawImage(buffer, 0, 0)
+        canvas.style.transition = 'none'
+        canvas.style.transform = 'none'
+        motionRef.current.visual = 0
+        // The size has to follow the new orientation in the same frame as the pixels.
+        flushSync(() => {
+          setAspect(buffer.width / buffer.height)
+          setRendered({ key: pageId, failed: false })
+        })
         canvas.style.visibility = 'visible'
-        setAspect(canvas.width / canvas.height)
-        setRendered({ key: pageKey, failed: false })
-      },
-      (error: unknown) => {
-        if (error instanceof Error && error.name === 'RenderingCancelledException') return
-        setRendered({ key: pageKey, failed: true })
-      },
-    )
-    return () => render.cancel()
-  }, [box, page, pageKey, sourcePdf, sharpZoom])
+        void canvas.offsetWidth
+        canvas.style.transition = ''
+        buffer.width = 0
+        buffer.height = 0
+      })
+      .catch((error: unknown) => {
+        if (!isCurrent || (error instanceof Error && error.name === 'RenderingCancelledException')) return
+        setRendered({ key: pageId, failed: true })
+      })
+    return () => {
+      isCurrent = false
+      render.cancel()
+    }
+  }, [box, page, pageId, sourcePdf, sharpZoom])
 
   const handlePanStart = (event: ReactPointerEvent<HTMLDivElement>) => {
     const stage = stageRef.current
@@ -233,7 +296,7 @@ export function PagePreviewViewer({
   }
 
   if (!page) return null
-  const showFailure = rendered?.key === pageKey && rendered.failed
+  const showFailure = rendered?.key === pageId && rendered.failed
   const percent = Math.round(zoom * 100)
 
   return (
@@ -329,9 +392,23 @@ export function PagePreviewViewer({
           </button>
         </div>
         <span className="page-viewer-toolbar-divider" aria-hidden="true" />
-        <button type="button" className="page-action-button" onClick={() => onRotate(page.id)}>
+        <button
+          type="button"
+          className="page-action-button"
+          aria-label="Rotate left 90 degrees"
+          title="Rotate left (Shift+R)"
+          onClick={() => onRotate(page.id, -90)}
+        >
+          <RotateCcw size={16} />
+        </button>
+        <button
+          type="button"
+          className="page-action-button"
+          aria-label="Rotate right 90 degrees"
+          title="Rotate right (R)"
+          onClick={() => onRotate(page.id, 90)}
+        >
           <RotateCw size={16} />
-          <span>Rotate 90°</span>
         </button>
         <button type="button" className="page-action-button destructive" onClick={handleDelete}>
           <Trash2 size={16} />
