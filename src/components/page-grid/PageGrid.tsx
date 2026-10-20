@@ -17,16 +17,18 @@ import { individualFilename } from '../../lib/export/filenames'
 import { PageThumbnail } from './PageThumbnail'
 import { prepareDragOut, readyDragOutPayload } from '../../lib/export/dragOut'
 
-const REARRANGE_DELAY_MS = 80
+const REARRANGE_DWELL_MS = 2000
+const POINTER_MOVE_TOLERANCE_PX = 8
 const REARRANGE_ANIMATION_MS = 220
 
-function moveItem(order: string[], activeId: string, overId: string): string[] {
-  const from = order.indexOf(activeId)
-  const to = order.indexOf(overId)
-  if (from < 0 || to < 0 || from === to) return order
-  const next = [...order]
-  next.splice(from, 1)
-  next.splice(to, 0, activeId)
+type DropSide = 'before' | 'after'
+
+function placeItem(order: string[], activeId: string, overId: string, side: DropSide): string[] {
+  if (activeId === overId) return order
+  const next = order.filter((id) => id !== activeId)
+  const overIndex = next.indexOf(overId)
+  if (overIndex < 0) return order
+  next.splice(side === 'after' ? overIndex + 1 : overIndex, 0, activeId)
   return next
 }
 
@@ -40,7 +42,7 @@ interface PageGridProps {
   searchQuery: string
   onToggleSelection: (pageId: string) => void
   onSetSelection: (pageIds: string[]) => void
-  onReorder: (activeId: string, overId: string) => void
+  onReorder: (activeId: string, overId: string, side?: DropSide) => void
   onRename: (pageId: string, label: string) => void
   onInspectPage: (pageId: string) => void
   onViewPage: (pageId: string) => void
@@ -60,7 +62,7 @@ interface PageCardProps {
   getDragPages: (pageId: string) => PdfPage[]
   onDragStart: (pageId: string) => void
   onDragEnd: () => void
-  onDragOverPage: (pageId: string) => void
+  onDragOverPage: (pageId: string, event: ReactDragEvent<HTMLElement>) => void
   onSelectPage: (pageId: string, modifiers: { extend: boolean; toggle: boolean }) => void
   onReorder: (activeId: string, overId: string) => void
   onRename: (pageId: string, label: string) => void
@@ -133,12 +135,13 @@ function PageCard({
   const beginRename = (event: ReactMouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
     event.stopPropagation()
-    setDraftLabel(page.label ?? '')
+    setDraftLabel(page.label || page.sourcePdfName)
     setIsRenaming(true)
   }
 
   const finishRename = () => {
-    onRename(page.id, draftLabel)
+    // Left untouched, the prefilled default name must not become a custom label.
+    onRename(page.id, !page.label && draftLabel === page.sourcePdfName ? '' : draftLabel)
     setIsRenaming(false)
   }
 
@@ -163,7 +166,7 @@ function PageCard({
         onDragStart(page.id)
       }}
       onDragEnd={onDragEnd}
-      onDragOver={() => onDragOverPage(page.id)}
+      onDragOver={(event) => onDragOverPage(page.id, event)}
       onKeyDown={handleKeyDown}
       onClick={handleCardClick}
       data-page-id={page.id}
@@ -202,6 +205,7 @@ function PageCard({
               aria-label={`Page ${page.pageNumber} label`}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => event.stopPropagation()}
+              onFocus={(event) => event.target.select()}
               onChange={(event) => setDraftLabel(event.target.value)}
               onBlur={finishRename}
               onKeyDown={(event) => {
@@ -326,9 +330,10 @@ export function PageGrid({
   )
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [previewOrder, setPreviewOrder] = useState<string[] | null>(null)
-  const pendingOverRef = useRef<string | null>(null)
-  const rearrangeTimerRef = useRef<number | undefined>(undefined)
-  const rearrangeLockedUntilRef = useRef(0)
+  const [hoverSlot, setHoverSlot] = useState<string | null>(null)
+  const hoverSlotRef = useRef<string | null>(null)
+  const dwellTimerRef = useRef<number | undefined>(undefined)
+  const rearrangedAtRef = useRef<{ x: number; y: number } | null>(null)
   const indicatorRef = useRef<HTMLDivElement>(null)
   const cardPositionsRef = useRef(new Map<string, { x: number; y: number }>())
   const pageById = useMemo(() => new Map(pages.map((page) => [page.id, page])), [pages])
@@ -461,38 +466,55 @@ export function PageGrid({
     window.addEventListener('pointerup', onUp)
   }
 
-  const cancelPendingRearrange = () => {
-    window.clearTimeout(rearrangeTimerRef.current)
-    pendingOverRef.current = null
+  const updateHoverSlot = (slot: string | null) => {
+    hoverSlotRef.current = slot
+    setHoverSlot(slot)
   }
 
   const startDrag = (pageId: string) => {
     setDraggingId(pageId)
-    setPreviewOrder(pages.map((page) => page.id))
+    setPreviewOrder(null)
   }
 
   const endDrag = () => {
-    cancelPendingRearrange()
+    window.clearTimeout(dwellTimerRef.current)
+    rearrangedAtRef.current = null
+    updateHoverSlot(null)
     setDraggingId(null)
     setPreviewOrder(null)
   }
 
-  // Hovering a card (or resting on one) makes the dragged page take its slot; the other cards slide aside.
-  const handleDragOverPage = (pageId: string) => {
+  // Hovering a gap shows where the page would land; the cards only rearrange after the pointer rests there.
+  const handleDragOverPage = (pageId: string, event: ReactDragEvent<HTMLElement>) => {
     if (!draggingId) return
-    if (pageId === draggingId || performance.now() < rearrangeLockedUntilRef.current) {
-      cancelPendingRearrange()
+    if (pageId === draggingId) {
+      window.clearTimeout(dwellTimerRef.current)
+      updateHoverSlot(null)
       return
     }
-    if (pendingOverRef.current === pageId) return
+    const moved = rearrangedAtRef.current
+    if (moved) {
+      // Right after a rearrangement a different card sits under the pointer; wait for real movement.
+      if (Math.hypot(event.clientX - moved.x, event.clientY - moved.y) < POINTER_MOVE_TOLERANCE_PX) return
+      rearrangedAtRef.current = null
+    }
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const isAfter =
+      viewMode === 'detail'
+        ? event.clientY > bounds.top + bounds.height / 2
+        : event.clientX > bounds.left + bounds.width / 2
+    const slot = `${pageId}|${isAfter ? 'after' : 'before'}`
+    if (slot === hoverSlotRef.current) return
 
-    cancelPendingRearrange()
-    pendingOverRef.current = pageId
-    rearrangeTimerRef.current = window.setTimeout(() => {
-      pendingOverRef.current = null
-      rearrangeLockedUntilRef.current = performance.now() + REARRANGE_ANIMATION_MS
-      setPreviewOrder((order) => (order ? moveItem(order, draggingId, pageId) : order))
-    }, REARRANGE_DELAY_MS)
+    window.clearTimeout(dwellTimerRef.current)
+    updateHoverSlot(slot)
+    const { clientX, clientY } = event
+    dwellTimerRef.current = window.setTimeout(() => {
+      const [overId, side] = slot.split('|') as [string, DropSide]
+      rearrangedAtRef.current = { x: clientX, y: clientY }
+      updateHoverSlot(null)
+      setPreviewOrder((order) => placeItem(order ?? pages.map((page) => page.id), draggingId, overId, side))
+    }, REARRANGE_DWELL_MS)
   }
 
   const handleGridDragOver = (event: ReactDragEvent<HTMLElement>) => {
@@ -505,9 +527,18 @@ export function PageGrid({
     if (!draggingId) return
     event.preventDefault()
     event.stopPropagation()
-    const newIndex = previewOrder?.indexOf(draggingId) ?? -1
-    const overId = pages[newIndex]?.id
-    if (overId && overId !== draggingId) onReorder(draggingId, overId)
+    let order = previewOrder ?? pages.map((page) => page.id)
+    if (hoverSlot) {
+      const [overId, side] = hoverSlot.split('|') as [string, DropSide]
+      order = placeItem(order, draggingId, overId, side)
+    }
+    // Express the final slot as "after its previous neighbour" (or "before its next" when first).
+    const index = order.indexOf(draggingId)
+    const unchanged = order.every((id, position) => id === pages[position]?.id)
+    if (!unchanged && index >= 0) {
+      if (index > 0) onReorder(draggingId, order[index - 1], 'after')
+      else if (order[1]) onReorder(draggingId, order[1], 'before')
+    }
     endDrag()
   }
 
@@ -519,12 +550,14 @@ export function PageGrid({
     const previous = cardPositionsRef.current
     const next = new Map<string, { x: number; y: number }>()
     let draggedBounds: DOMRect | undefined
+    const boundsById = new Map<string, DOMRect>()
     const canAnimate = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
     grid.querySelectorAll<HTMLElement>('[data-page-id]').forEach((card) => {
       const id = card.dataset.pageId
       if (!id) return
       const bounds = card.getBoundingClientRect()
+      boundsById.set(id, bounds)
       if (id === draggingId) draggedBounds = bounds
       const position = { x: bounds.left - gridBounds.left, y: bounds.top - gridBounds.top }
       next.set(id, position)
@@ -541,38 +574,46 @@ export function PageGrid({
     })
     cardPositionsRef.current = next
 
-    // Insertion bar centred in the gap before the dragged page's new slot (after it, for a first-in-row slot).
+    // The bar sits centred in the gap on one side of a card. Once the cards have rearranged it
+    // opens up into an outline of the dragged page's new slot.
     const indicator = indicatorRef.current
     if (!indicator) return
-    if (!draggedBounds) {
+    const hovered = hoverSlot?.split('|') as [string, DropSide] | undefined
+    const slotBounds = !hovered && previewOrder ? draggedBounds : undefined
+    const barBounds = hovered ? boundsById.get(hovered[0]) : undefined
+    const bounds = slotBounds ?? barBounds
+    indicator.classList.toggle('is-expanded', slotBounds !== undefined)
+    if (!bounds) {
       indicator.style.opacity = '0'
       return
     }
     const isList = viewMode === 'detail'
-    const styles = getComputedStyle(grid)
-    const gap = parseFloat(isList ? styles.rowGap : styles.columnGap) || 0
-    const thickness = 4
-    const isFirstInLine = isList
-      ? draggedBounds.top - gridBounds.top < 1
-      : draggedBounds.left - gridBounds.left < 1
-    const edge = isList
-      ? isFirstInLine ? draggedBounds.bottom : draggedBounds.top
-      : isFirstInLine ? draggedBounds.right : draggedBounds.left
-    const offset = (isFirstInLine ? gap / 2 : -gap / 2) - thickness / 2
-    const x = isList ? draggedBounds.left - gridBounds.left : edge - gridBounds.left + offset
-    const y = isList ? edge - gridBounds.top + offset : draggedBounds.top - gridBounds.top
-    indicator.style.width = `${isList ? draggedBounds.width : thickness}px`
-    indicator.style.height = `${isList ? thickness : draggedBounds.height}px`
-    indicator.style.transform = `translate(${x}px, ${y}px)`
+    const left = bounds.left - gridBounds.left
+    const top = bounds.top - gridBounds.top
+    if (slotBounds) {
+      indicator.style.width = `${bounds.width}px`
+      indicator.style.height = `${bounds.height}px`
+      indicator.style.transform = `translate(${left}px, ${top}px)`
+    } else {
+      const gap = parseFloat(isList ? getComputedStyle(grid).rowGap : getComputedStyle(grid).columnGap) || 0
+      const thickness = 4
+      const side = hovered?.[1]
+      const along = isList
+        ? (side === 'after' ? bounds.bottom - gridBounds.top + gap / 2 : top - gap / 2) - thickness / 2
+        : (side === 'after' ? bounds.right - gridBounds.left + gap / 2 : left - gap / 2) - thickness / 2
+      indicator.style.width = `${isList ? bounds.width : thickness}px`
+      indicator.style.height = `${isList ? thickness : bounds.height}px`
+      indicator.style.transform = `translate(${isList ? left : along}px, ${isList ? along : top}px)`
+    }
     indicator.style.opacity = '1'
-  }, [displayPages, draggingId, viewMode])
+  }, [displayPages, draggingId, hoverSlot, previewOrder, viewMode])
 
   useEffect(() => {
     const forgetPositions = () => cardPositionsRef.current.clear()
     window.addEventListener('resize', forgetPositions)
     return () => {
       window.removeEventListener('resize', forgetPositions)
-      window.clearTimeout(rearrangeTimerRef.current)
+      window.clearTimeout(dwellTimerRef.current)
     }
   }, [])
 
