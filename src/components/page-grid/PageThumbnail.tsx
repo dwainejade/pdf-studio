@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { FileWarning, Maximize2 } from 'lucide-react'
 import { loadPageThumbnail } from '../../lib/pdfThumbnailCache'
 
@@ -9,6 +9,7 @@ interface PageThumbnailProps {
   pageNumber: number
   rotation: number
   onExpand?: () => void
+  children?: ReactNode
 }
 
 export function PageThumbnail({
@@ -18,6 +19,7 @@ export function PageThumbnail({
   pageNumber,
   rotation,
   onExpand,
+  children,
 }: PageThumbnailProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [isVisible, setIsVisible] = useState(false)
@@ -122,6 +124,7 @@ export function PageThumbnail({
           <Maximize2 size={14} />
         </button>
       )}
+      {children}
     </div>
   )
 }

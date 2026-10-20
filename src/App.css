@@ -8,7 +8,9 @@
   background-image:
     radial-gradient(rgba(210, 207, 222, 0.12) 0.7px, transparent 0.7px),
     linear-gradient(135deg, #24252b 0%, #303139 48%, #1e2026 100%);
-  background-size: 20px 20px, 100% 100%;
+  background-size:
+    20px 20px,
+    100% 100%;
   background-repeat: repeat, no-repeat;
   background-attachment: scroll, fixed;
 }
@@ -218,66 +220,6 @@
   cursor: pointer;
 }
 
-.view-mode-switcher {
-  display: inline-flex;
-  min-height: 34px;
-  align-items: center;
-  gap: 2px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 9px;
-  background: rgba(0, 0, 0, 0.12);
-  padding: 3px;
-}
-
-.view-mode-button {
-  display: inline-flex;
-  height: 26px;
-  align-items: center;
-  gap: 5px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #aaa6b3;
-  padding: 0 8px;
-  font-size: 10px;
-  cursor: pointer;
-}
-
-.view-mode-button:hover {
-  color: #e3dfff;
-}
-
-.view-mode-button.is-active {
-  background: #41404c;
-  color: #e3d9ff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.22);
-}
-
-.detail-sort-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: #9692a0;
-  font-size: 10px;
-}
-
-.detail-sort-control select {
-  max-width: 128px;
-  min-height: 32px;
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  border-radius: 8px;
-  outline: 0;
-  background: #303039;
-  color: #d9d5e2;
-  padding: 0 8px;
-  font-size: 10px;
-}
-
-.detail-sort-control select:focus-visible {
-  outline: 2px solid #b5a4ff;
-  outline-offset: 2px;
-}
-
 .thumbnail-size-control {
   display: inline-flex;
   min-width: 145px;
@@ -343,20 +285,16 @@
 .page-grid {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--page-card-min-width, 174px)), 1fr));
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(min(100%, var(--page-card-min-width, 174px)), 1fr)
+  );
   align-content: start;
   gap: 18px;
   min-height: calc(100vh - 180px);
-  margin-top: 26px;
+  padding-top: 26px;
   perspective: 1000px;
   contain: layout style;
-}
-
-.page-grid.view-detail {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
-  perspective: none;
-  overflow-x: auto;
 }
 
 .page-grid.is-marquee-selecting {
@@ -412,7 +350,9 @@
 
 .page-card.is-selected {
   border-color: #9f88ff;
-  box-shadow: 0 0 0 2px #9f88ff, 0 14px 30px rgba(0, 0, 0, 0.25);
+  box-shadow:
+    0 0 0 2px #9f88ff,
+    0 14px 30px rgba(0, 0, 0, 0.25);
 }
 
 .page-select-toggle {
@@ -447,7 +387,7 @@
   position: relative;
   display: grid;
   height: clamp(170px, var(--page-preview-height, 224px), 448px);
-  padding: clamp(10px, var(--page-preview-padding, 14px), 26px);
+  padding: 0;
   place-items: center;
   background: #e8e6e8;
   overflow: hidden;
@@ -458,9 +398,8 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: 2px;
+  border-radius: 0;
   background: #fff;
-  box-shadow: 0 4px 14px rgba(27, 24, 39, 0.16);
   image-rendering: auto;
 }
 
@@ -479,202 +418,6 @@
   gap: 7px;
   color: #77717f;
   font-size: 10px;
-}
-
-.page-grid.view-detail .page-card {
-  display: grid;
-  grid-template-columns: var(--detail-columns);
-  min-width: 100%;
-  min-height: 150px;
-  align-items: stretch;
-  contain-intrinsic-size: auto 150px;
-  border-radius: 10px;
-  background: #f8f7f8;
-}
-
-.page-grid.view-detail .page-card:hover {
-  transform: translateY(-1px);
-}
-
-.page-grid.view-detail .page-select-toggle {
-  top: 8px;
-  left: 8px;
-  width: 19px;
-  height: 19px;
-}
-
-.page-grid.view-detail .page-preview {
-  width: auto;
-  height: clamp(100px, var(--detail-preview-height, 140px), 280px);
-  min-height: 140px;
-  align-self: center;
-  margin: 5px 8px;
-  padding: 8px;
-}
-
-.page-grid.view-detail .page-thumbnail {
-  width: auto;
-  max-width: 100%;
-  max-height: 100%;
-}
-
-.page-grid.view-detail .page-metadata {
-  min-width: 0;
-  align-self: center;
-  border-top: 0;
-  padding: 12px 9px;
-}
-
-.detail-table-header {
-  display: grid;
-  grid-template-columns: var(--detail-columns);
-  min-width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  background: #292a32;
-  color: #aaa6b3;
-  padding: 0;
-  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.15);
-}
-
-.detail-column-heading {
-  position: relative;
-  display: flex;
-  min-width: 0;
-  min-height: 38px;
-  align-items: center;
-  overflow: visible;
-  padding: 0 8px;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.detail-column-resizer {
-  position: absolute;
-  z-index: 2;
-  top: 7px;
-  right: -2px;
-  width: 6px;
-  height: 24px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  cursor: col-resize;
-  touch-action: none;
-}
-
-.detail-column-resizer:hover,
-.detail-column-resizer:focus-visible {
-  background: rgba(180, 160, 255, 0.55);
-}
-
-.detail-page-info {
-  gap: 8px;
-}
-
-.detail-page-info .page-number {
-  width: 32px;
-  height: 32px;
-}
-
-.detail-page-label,
-.detail-source-label {
-  display: block;
-  overflow: hidden;
-  margin-top: 3px;
-  color: #797482 !important;
-  font-size: 9px !important;
-  font-weight: 500 !important;
-  letter-spacing: 0 !important;
-  text-overflow: ellipsis;
-  text-transform: none !important;
-  white-space: nowrap;
-}
-
-.detail-metadata-cell,
-.detail-page-data,
-.detail-export-name {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  align-self: center;
-  gap: 4px;
-  overflow: hidden;
-  padding: 12px 10px;
-  color: #77727f;
-  font-size: 9px;
-  line-height: 1.35;
-}
-
-.detail-metadata-cell > span,
-.detail-page-data > span,
-.detail-export-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.detail-metadata-cell .detail-source-name {
-  margin-bottom: 2px;
-  color: #45414e;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.detail-export-name {
-  color: #615b70;
-  font-family: Consolas, 'Courier New', monospace;
-  font-size: 9px;
-}
-
-.detail-row-actions {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 8px 6px;
-}
-
-.detail-row-actions button {
-  display: grid;
-  width: 27px;
-  height: 27px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 1px solid #e7e3ec;
-  border-radius: 7px;
-  background: #fff;
-  color: #645b79;
-  cursor: pointer;
-}
-
-.detail-row-actions button:hover {
-  border-color: #c6b8ff;
-  background: #f4f0ff;
-  color: #514183;
-}
-
-.detail-row-actions button[aria-label^='Delete'] {
-  color: #a65151;
-}
-
-.detail-row-actions .detail-select-button {
-  width: auto;
-  min-width: 56px;
-  padding: 0 7px;
-  font-size: 9px;
-}
-
-.detail-row-actions .detail-select-button.is-selected {
-  border-color: #8873df;
-  background: #ede8ff;
-  color: #574694;
-  font-weight: 650;
 }
 
 .document-inspector {
@@ -723,7 +466,9 @@
   cursor: pointer;
   opacity: 0;
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.16);
-  transition: opacity 120ms ease, background 120ms ease;
+  transition:
+    opacity 120ms ease,
+    background 120ms ease;
 }
 
 .page-card:hover .page-expand-button,
@@ -938,13 +683,16 @@
   color: #e0dce6;
 }
 
-
 .page-metadata {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 11px 12px;
-  border-top: 1px solid #e7e4e9;
+  margin: 8px 8px 8px;
+  padding: 9px 10px;
+  border: 1px solid #e3dfe8;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(27, 24, 39, 0.08);
 }
 
 .page-number {
@@ -1110,7 +858,11 @@
   overflow-y: auto;
   border-left: 1px solid rgba(211, 202, 255, 0.14);
   background:
-    radial-gradient(ellipse at top right, rgba(125, 102, 193, 0.13), transparent 45%),
+    radial-gradient(
+      ellipse at top right,
+      rgba(125, 102, 193, 0.13),
+      transparent 45%
+    ),
     #222229;
   color: #eceaf2;
   padding: 30px;
@@ -1119,8 +871,14 @@
 }
 
 @keyframes export-drawer-enter {
-  from { transform: translateX(22px); opacity: 0.7; }
-  to { transform: translateX(0); opacity: 1; }
+  from {
+    transform: translateX(22px);
+    opacity: 0.7;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 .export-drawer-header {
@@ -1232,7 +990,7 @@
   height: 9px;
   border-radius: 50%;
   background: #b5a2ff;
-  content: '';
+  content: "";
 }
 
 .export-mode-option > span:last-child {
@@ -1562,7 +1320,6 @@
 
   .page-preview {
     height: 190px;
-    padding: 11px;
   }
 
   .app-shell {
@@ -1599,10 +1356,6 @@
 
   .thumbnail-size-control {
     min-width: 125px;
-  }
-
-  .view-mode-button {
-    padding: 0 6px;
   }
 
   .page-rename-button {
@@ -1649,19 +1402,155 @@
     transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
     width 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
     height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    border-radius 260ms ease,
-    background 260ms ease,
     opacity 120ms ease;
-}
-
-/* Expanded: the bar has opened into a dashed outline around the page's new slot, preview showing through. */
-.drop-indicator.is-expanded {
-  border-width: 2px;
-  border-radius: 12px;
-  background: rgba(159, 136, 255, 0.14);
-  box-shadow: 0 0 0 1px rgba(159, 136, 255, 0.35), 0 0 22px rgba(159, 136, 255, 0.45);
 }
 
 .page-card.is-dragging {
   opacity: 0.6;
+}
+
+/* Grid view: the card is just the preview; the label sits beneath it on the dark background. */
+.page-grid.view-grid .page-card {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  /* paint containment would clip the preview's shadow */
+  content-visibility: visible;
+}
+
+.page-grid.view-grid .page-preview {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.19);
+  transition:
+    box-shadow 150ms ease,
+    border-color 150ms ease;
+}
+
+.page-grid.view-grid .page-card:hover .page-preview {
+  border-color: rgba(195, 181, 255, 0.5);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.27);
+}
+
+.page-grid.view-grid .page-card.is-selected .page-preview {
+  border-color: #9f88ff;
+  box-shadow:
+    0 0 0 2px #9f88ff,
+    0 14px 30px rgba(0, 0, 0, 0.25);
+}
+
+.page-grid.view-grid .page-metadata {
+  margin: 10px 2px 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.page-grid.view-grid .page-number {
+  background: rgba(255, 255, 255, 0.1);
+  color: #d4ccf7;
+}
+
+.page-grid.view-grid .page-source span {
+  color: #9c99a8;
+}
+
+.page-grid.view-grid .page-source strong {
+  color: #efedf4;
+}
+
+.page-grid.view-grid .page-rename-button,
+.page-grid.view-grid .page-label-actions button {
+  color: #b6b3c1;
+}
+
+.page-grid.view-grid .page-rename-button:hover,
+.page-grid.view-grid .page-label-actions button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.page-grid.view-grid .page-label-input {
+  border-color: #6f62b8;
+  background: #1b1c22;
+  color: #f0eef5;
+}
+
+.page-grid.view-grid .page-number-badge {
+  position: absolute;
+  z-index: 2;
+  bottom: 10px;
+  left: 10px;
+  display: grid;
+  min-width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0 7px;
+  border-radius: 7px;
+  background: rgba(34, 31, 48, 0.82);
+  color: #f0eef8;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.22);
+  pointer-events: none;
+}
+
+.page-grid.view-grid .page-source > span:first-child {
+  display: none;
+}
+
+/* Renaming happens in place: the input replaces the name without changing the row's height. */
+.page-grid.view-grid .page-card {
+  container-type: inline-size;
+}
+
+.page-grid.view-grid .page-metadata {
+  position: relative;
+  min-height: 28px;
+}
+
+.page-grid.view-grid .page-source {
+  flex: 1;
+}
+
+.page-grid.view-grid .page-label-input {
+  display: block;
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 58px 0 9px;
+  border-width: 1.5px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+
+.page-grid.view-grid .page-label-input:focus {
+  border-color: #a995ff;
+  box-shadow: 0 0 0 3px rgba(169, 149, 255, 0.25);
+}
+
+.page-grid.view-grid .page-label-actions {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+}
+
+.page-grid.view-grid .page-label-actions button {
+  width: 22px;
+  height: 22px;
+}
+
+/* Small previews: Enter saves and Escape cancels, so the buttons make room for the text. */
+@container (max-width: 150px) {
+  .page-grid.view-grid .page-label-actions {
+    display: none;
+  }
+
+  .page-grid.view-grid .page-label-input {
+    padding-right: 8px;
+  }
 }

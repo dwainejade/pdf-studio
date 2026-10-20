@@ -10,34 +10,20 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { Check, FileText, Pencil, RotateCw, Trash2, X } from 'lucide-react'
+import { Check, FileText, Pencil, X } from 'lucide-react'
 import type { PdfPage, UploadedPdf } from '../../types/pdf'
-import type { PageViewMode } from '../../store/viewPreferences'
-import { individualFilename } from '../../lib/export/filenames'
 import { PageThumbnail } from './PageThumbnail'
 import { prepareDragOut, readyDragOutPayload } from '../../lib/export/dragOut'
 
-const REARRANGE_DWELL_MS = 2000
-const POINTER_MOVE_TOLERANCE_PX = 8
 const REARRANGE_ANIMATION_MS = 220
 
 type DropSide = 'before' | 'after'
-
-function placeItem(order: string[], activeId: string, overId: string, side: DropSide): string[] {
-  if (activeId === overId) return order
-  const next = order.filter((id) => id !== activeId)
-  const overIndex = next.indexOf(overId)
-  if (overIndex < 0) return order
-  next.splice(side === 'after' ? overIndex + 1 : overIndex, 0, activeId)
-  return next
-}
 
 interface PageGridProps {
   pages: PdfPage[]
   pdfs: UploadedPdf[]
   isProcessing: boolean
   selectedPageIds: string[]
-  viewMode: PageViewMode
   thumbnailSize: number
   searchQuery: string
   onToggleSelection: (pageId: string) => void
@@ -46,8 +32,6 @@ interface PageGridProps {
   onRename: (pageId: string, label: string) => void
   onInspectPage: (pageId: string) => void
   onViewPage: (pageId: string) => void
-  onRotatePage: (pageId: string) => void
-  onDeletePage: (pageId: string) => void
 }
 
 interface PageCardProps {
@@ -57,7 +41,6 @@ interface PageCardProps {
   sourcePdf: UploadedPdf
   pdfs: UploadedPdf[]
   isSelected: boolean
-  viewMode: PageViewMode
   isBeingDragged: boolean
   getDragPages: (pageId: string) => PdfPage[]
   onDragStart: (pageId: string) => void
@@ -68,8 +51,6 @@ interface PageCardProps {
   onRename: (pageId: string, label: string) => void
   onInspectPage: (pageId: string) => void
   onViewPage: (pageId: string) => void
-  onRotatePage: (pageId: string) => void
-  onDeletePage: (pageId: string) => void
 }
 
 function PageCard({
@@ -79,7 +60,6 @@ function PageCard({
   sourcePdf,
   pdfs,
   isSelected,
-  viewMode,
   isBeingDragged,
   getDragPages,
   onDragStart,
@@ -90,8 +70,6 @@ function PageCard({
   onRename,
   onInspectPage,
   onViewPage,
-  onRotatePage,
-  onDeletePage,
 }: PageCardProps) {
   const [isRenaming, setIsRenaming] = useState(false)
   const [draftLabel, setDraftLabel] = useState(page.label ?? '')
@@ -126,10 +104,6 @@ function PageCard({
       extend: event.shiftKey,
       toggle: event.ctrlKey || event.metaKey,
     })
-  }
-
-  const stopCardAction = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation()
   }
 
   const beginRename = (event: ReactMouseEvent<HTMLButtonElement>) => {
@@ -189,14 +163,12 @@ function PageCard({
         pageNumber={page.pageNumber}
         rotation={page.rotation}
         onExpand={() => onViewPage(page.id)}
-      />
-      <div className={`page-metadata${viewMode === 'detail' ? ' detail-page-info' : ''}`}>
-        <span className="page-number">{page.pageNumber}</span>
+      >
+        <span className="page-number-badge">{page.pageNumber}</span>
+      </PageThumbnail>
+      <div className="page-metadata">
         <div className="page-source" title={page.sourcePdfName}>
           <span>Page {page.pageNumber}</span>
-          {viewMode === 'detail' && page.label && (
-            <span className="detail-page-label">Label: {page.label}</span>
-          )}
           {isRenaming ? (
             <input
               className="page-label-input"
@@ -216,9 +188,6 @@ function PageCard({
             />
           ) : (
             <strong>{page.label || page.sourcePdfName}</strong>
-          )}
-          {viewMode === 'detail' && (
-            <span className="detail-source-label">Source: {page.sourcePdfName}</span>
           )}
         </div>
         {isRenaming ? (
@@ -242,63 +211,6 @@ function PageCard({
           </button>
         )}
       </div>
-      {viewMode === 'detail' && (
-        <>
-          <div className="detail-metadata-cell">
-            <span className="detail-source-name">{page.sourcePdfName}</span>
-            <span>Title: {sourcePdf.metadata.title || 'Not Available'}</span>
-            <span>Author: {sourcePdf.metadata.author || 'Not Available'}</span>
-            <span>Subject: {sourcePdf.metadata.subject || 'Not Available'}</span>
-            <span>Keywords: {sourcePdf.metadata.keywords || 'Not Available'}</span>
-            <span>Created: {sourcePdf.metadata.creationDate || 'Not Available'}</span>
-            <span>Modified: {sourcePdf.metadata.modificationDate || 'Not Available'}</span>
-            <span>PDF version: {sourcePdf.metadata.version || 'Not Available'}</span>
-          </div>
-          <div className="detail-page-data">
-            <span>Rotation: {page.rotation}°</span>
-            <span>{page.width.toFixed(1)} × {page.height.toFixed(1)} pt</span>
-            <span>Width: {page.width.toFixed(1)} pt</span>
-            <span>Height: {page.height.toFixed(1)} pt</span>
-          </div>
-          <div className="detail-export-name" title={individualFilename(page)}>
-            {individualFilename(page)}
-          </div>
-          <div className="detail-row-actions">
-            <button
-              type="button"
-              aria-label={`Rotate page ${page.pageNumber}`}
-              title="Rotate 90°"
-              onPointerDown={stopCardAction}
-              onClick={(event) => { stopCardAction(event); onRotatePage(page.id) }}
-            >
-              <RotateCw size={15} />
-            </button>
-            <button
-              type="button"
-              aria-label={`Delete page ${page.pageNumber}`}
-              title="Delete page"
-              onPointerDown={stopCardAction}
-              onClick={(event) => { stopCardAction(event); onDeletePage(page.id) }}
-            >
-              <Trash2 size={15} />
-            </button>
-            <button
-              className={`detail-select-button${isSelected ? ' is-selected' : ''}`}
-              type="button"
-              aria-label={isSelected ? `Deselect page ${page.pageNumber}` : `Select page ${page.pageNumber}`}
-              aria-pressed={isSelected}
-              onPointerDown={stopCardAction}
-              onClick={(event) => {
-                stopCardAction(event)
-                onInspectPage(page.id)
-                onSelectPage(page.id, { extend: false, toggle: true })
-              }}
-            >
-              {isSelected ? 'Selected' : 'Select'}
-            </button>
-          </div>
-        </>
-      )}
     </article>
   )
 }
@@ -308,7 +220,6 @@ export function PageGrid({
   pdfs,
   isProcessing,
   selectedPageIds,
-  viewMode,
   thumbnailSize,
   searchQuery,
   onToggleSelection,
@@ -317,8 +228,6 @@ export function PageGrid({
   onRename,
   onInspectPage,
   onViewPage,
-  onRotatePage,
-  onDeletePage,
 }: PageGridProps) {
   const sourcePdfById = useMemo(
     () => new Map(pdfs.map((pdf) => [pdf.id, pdf])),
@@ -329,31 +238,15 @@ export function PageGrid({
     [selectedPageIds],
   )
   const [draggingId, setDraggingId] = useState<string | null>(null)
-  const [previewOrder, setPreviewOrder] = useState<string[] | null>(null)
   const [hoverSlot, setHoverSlot] = useState<string | null>(null)
   const hoverSlotRef = useRef<string | null>(null)
-  const dwellTimerRef = useRef<number | undefined>(undefined)
-  const rearrangedAtRef = useRef<{ x: number; y: number } | null>(null)
   const indicatorRef = useRef<HTMLDivElement>(null)
   const cardPositionsRef = useRef(new Map<string, { x: number; y: number }>())
-  const pageById = useMemo(() => new Map(pages.map((page) => [page.id, page])), [pages])
-  const displayPages = useMemo(
-    () =>
-      previewOrder
-        ? previewOrder.flatMap((id) => {
-            const page = pageById.get(id)
-            return page ? [page] : []
-          })
-        : pages,
-    [pageById, pages, previewOrder],
-  )
   const getDragPages = (pageId: string) =>
     selectedSet.has(pageId) && selectedSet.size > 1
       ? pages.filter((page) => selectedSet.has(page.id))
       : pages.filter((page) => page.id === pageId)
   const selectionAnchorId = useRef<string | null>(null)
-  const [columnWidths, setColumnWidths] = useState([150, 190, 380, 180, 220, 150])
-  const resizeRef = useRef<{ index: number; startX: number; width: number } | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
   const marqueeStartRef = useRef<{ x: number; y: number; additive: boolean } | null>(null)
   const [marquee, setMarquee] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
@@ -442,30 +335,6 @@ export function PageGrid({
     setMarquee(null)
   }
 
-  const beginColumnResize = (index: number, event: ReactPointerEvent<HTMLButtonElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    resizeRef.current = { index, startX: event.clientX, width: columnWidths[index] }
-    const onMove = (moveEvent: PointerEvent) => {
-      if (!resizeRef.current) return
-      const { index: resizedIndex, startX, width } = resizeRef.current
-      setColumnWidths((current) =>
-        current.map((currentWidth, currentIndex) =>
-          currentIndex === resizedIndex
-            ? Math.min(640, Math.max(80, width + moveEvent.clientX - startX))
-            : currentWidth,
-        ),
-      )
-    }
-    const onUp = () => {
-      resizeRef.current = null
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-  }
-
   const updateHoverSlot = (slot: string | null) => {
     hoverSlotRef.current = slot
     setHoverSlot(slot)
@@ -473,48 +342,24 @@ export function PageGrid({
 
   const startDrag = (pageId: string) => {
     setDraggingId(pageId)
-    setPreviewOrder(null)
   }
 
   const endDrag = () => {
-    window.clearTimeout(dwellTimerRef.current)
-    rearrangedAtRef.current = null
     updateHoverSlot(null)
     setDraggingId(null)
-    setPreviewOrder(null)
   }
 
-  // Hovering a gap shows where the page would land; the cards only rearrange after the pointer rests there.
+  // While dragging, only an insertion bar marks the spot; the cards rearrange once the page is released.
   const handleDragOverPage = (pageId: string, event: ReactDragEvent<HTMLElement>) => {
     if (!draggingId) return
     if (pageId === draggingId) {
-      window.clearTimeout(dwellTimerRef.current)
       updateHoverSlot(null)
       return
     }
-    const moved = rearrangedAtRef.current
-    if (moved) {
-      // Right after a rearrangement a different card sits under the pointer; wait for real movement.
-      if (Math.hypot(event.clientX - moved.x, event.clientY - moved.y) < POINTER_MOVE_TOLERANCE_PX) return
-      rearrangedAtRef.current = null
-    }
     const bounds = event.currentTarget.getBoundingClientRect()
-    const isAfter =
-      viewMode === 'detail'
-        ? event.clientY > bounds.top + bounds.height / 2
-        : event.clientX > bounds.left + bounds.width / 2
+    const isAfter = event.clientX > bounds.left + bounds.width / 2
     const slot = `${pageId}|${isAfter ? 'after' : 'before'}`
-    if (slot === hoverSlotRef.current) return
-
-    window.clearTimeout(dwellTimerRef.current)
-    updateHoverSlot(slot)
-    const { clientX, clientY } = event
-    dwellTimerRef.current = window.setTimeout(() => {
-      const [overId, side] = slot.split('|') as [string, DropSide]
-      rearrangedAtRef.current = { x: clientX, y: clientY }
-      updateHoverSlot(null)
-      setPreviewOrder((order) => placeItem(order ?? pages.map((page) => page.id), draggingId, overId, side))
-    }, REARRANGE_DWELL_MS)
+    if (slot !== hoverSlotRef.current) updateHoverSlot(slot)
   }
 
   const handleGridDragOver = (event: ReactDragEvent<HTMLElement>) => {
@@ -527,17 +372,9 @@ export function PageGrid({
     if (!draggingId) return
     event.preventDefault()
     event.stopPropagation()
-    let order = previewOrder ?? pages.map((page) => page.id)
     if (hoverSlot) {
       const [overId, side] = hoverSlot.split('|') as [string, DropSide]
-      order = placeItem(order, draggingId, overId, side)
-    }
-    // Express the final slot as "after its previous neighbour" (or "before its next" when first).
-    const index = order.indexOf(draggingId)
-    const unchanged = order.every((id, position) => id === pages[position]?.id)
-    if (!unchanged && index >= 0) {
-      if (index > 0) onReorder(draggingId, order[index - 1], 'after')
-      else if (order[1]) onReorder(draggingId, order[1], 'before')
+      onReorder(draggingId, overId, side)
     }
     endDrag()
   }
@@ -549,7 +386,6 @@ export function PageGrid({
     const gridBounds = grid.getBoundingClientRect()
     const previous = cardPositionsRef.current
     const next = new Map<string, { x: number; y: number }>()
-    let draggedBounds: DOMRect | undefined
     const boundsById = new Map<string, DOMRect>()
     const canAnimate = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -558,7 +394,6 @@ export function PageGrid({
       if (!id) return
       const bounds = card.getBoundingClientRect()
       boundsById.set(id, bounds)
-      if (id === draggingId) draggedBounds = bounds
       const position = { x: bounds.left - gridBounds.left, y: bounds.top - gridBounds.top }
       next.set(id, position)
       const before = previous.get(id)
@@ -574,46 +409,31 @@ export function PageGrid({
     })
     cardPositionsRef.current = next
 
-    // The bar sits centred in the gap on one side of a card. Once the cards have rearranged it
-    // opens up into an outline of the dragged page's new slot.
+    // The bar sits centred in the gap on one side of the hovered card.
     const indicator = indicatorRef.current
     if (!indicator) return
     const hovered = hoverSlot?.split('|') as [string, DropSide] | undefined
-    const slotBounds = !hovered && previewOrder ? draggedBounds : undefined
-    const barBounds = hovered ? boundsById.get(hovered[0]) : undefined
-    const bounds = slotBounds ?? barBounds
-    indicator.classList.toggle('is-expanded', slotBounds !== undefined)
-    if (!bounds) {
+    const bounds = hovered ? boundsById.get(hovered[0]) : undefined
+    if (!hovered || !bounds) {
       indicator.style.opacity = '0'
       return
     }
-    const isList = viewMode === 'detail'
-    const left = bounds.left - gridBounds.left
-    const top = bounds.top - gridBounds.top
-    if (slotBounds) {
-      indicator.style.width = `${bounds.width}px`
-      indicator.style.height = `${bounds.height}px`
-      indicator.style.transform = `translate(${left}px, ${top}px)`
-    } else {
-      const gap = parseFloat(isList ? getComputedStyle(grid).rowGap : getComputedStyle(grid).columnGap) || 0
-      const thickness = 4
-      const side = hovered?.[1]
-      const along = isList
-        ? (side === 'after' ? bounds.bottom - gridBounds.top + gap / 2 : top - gap / 2) - thickness / 2
-        : (side === 'after' ? bounds.right - gridBounds.left + gap / 2 : left - gap / 2) - thickness / 2
-      indicator.style.width = `${isList ? bounds.width : thickness}px`
-      indicator.style.height = `${isList ? thickness : bounds.height}px`
-      indicator.style.transform = `translate(${isList ? left : along}px, ${isList ? along : top}px)`
-    }
+    const gap = parseFloat(getComputedStyle(grid).columnGap) || 0
+    const thickness = 4
+    const along =
+      (hovered[1] === 'after' ? bounds.right - gridBounds.left + gap / 2 : bounds.left - gridBounds.left - gap / 2) -
+      thickness / 2
+    indicator.style.width = `${thickness}px`
+    indicator.style.height = `${bounds.height}px`
+    indicator.style.transform = `translate(${along}px, ${bounds.top - gridBounds.top}px)`
     indicator.style.opacity = '1'
-  }, [displayPages, draggingId, hoverSlot, previewOrder, viewMode])
+  }, [pages, draggingId, hoverSlot])
 
   useEffect(() => {
     const forgetPositions = () => cardPositionsRef.current.clear()
     window.addEventListener('resize', forgetPositions)
     return () => {
       window.removeEventListener('resize', forgetPositions)
-      window.clearTimeout(dwellTimerRef.current)
     }
   }, [])
 
@@ -621,17 +441,13 @@ export function PageGrid({
     return (
           <div
             ref={gridRef}
-            className={`page-grid view-${viewMode}${marquee ? ' is-marquee-selecting' : ''}`}
+            className={`page-grid view-grid${marquee ? ' is-marquee-selecting' : ''}`}
             style={{
               '--page-card-min-width': `${174 * thumbnailSize / 100}px`,
               '--page-preview-height': `${224 * thumbnailSize / 100}px`,
               '--page-preview-padding': `${14 * thumbnailSize / 100}px`,
-              '--detail-preview-height': `${140 * thumbnailSize / 100}px`,
-              '--detail-columns': columnWidths
-                .map((width, index) => index === 2 ? `minmax(${width}px, 1fr)` : `${width}px`)
-                .join(' '),
             } as CSSProperties}
-            aria-label={`${viewMode} view of PDF pages`}
+            aria-label="PDF pages"
             onPointerDown={handleGridPointerDown}
             onPointerMove={handleGridPointerMove}
             onPointerUp={handleGridPointerUp}
@@ -639,23 +455,6 @@ export function PageGrid({
             onDragOver={handleGridDragOver}
             onDrop={handleGridDrop}
           >
-            {viewMode === 'detail' && (
-              <div className="detail-table-header" aria-hidden="true">
-                {['Preview', 'Page information', 'PDF metadata', 'Page data', 'Export name', 'Actions'].map((title, index) => (
-                  <div className="detail-column-heading" key={title}>
-                    <span>{title}</span>
-                    {index < 5 && (
-                      <button
-                        type="button"
-                        className="detail-column-resizer"
-                        aria-label={`Resize ${title} column`}
-                        onPointerDown={(event) => beginColumnResize(index, event)}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
             <div ref={indicatorRef} className="drop-indicator" aria-hidden="true" />
             {marquee && (
               <div
@@ -669,7 +468,7 @@ export function PageGrid({
                 aria-hidden="true"
               />
             )}
-            {displayPages.map((page, index) => {
+            {pages.map((page, index) => {
               const sourcePdf = sourcePdfById.get(page.sourcePdfId)
               if (!sourcePdf) return null
               return (
@@ -677,7 +476,7 @@ export function PageGrid({
                   key={page.id}
                   page={page}
                   index={index}
-                  pages={displayPages}
+                  pages={pages}
                   sourcePdf={sourcePdf}
                   pdfs={pdfs}
                   getDragPages={getDragPages}
@@ -686,14 +485,11 @@ export function PageGrid({
                   onDragEnd={endDrag}
                   onDragOverPage={handleDragOverPage}
                   isSelected={selectedSet.has(page.id)}
-                  viewMode={viewMode}
                   onSelectPage={selectPage}
                   onReorder={onReorder}
                   onRename={onRename}
                   onInspectPage={onInspectPage}
                   onViewPage={onViewPage}
-                  onRotatePage={onRotatePage}
-                  onDeletePage={onDeletePage}
                 />
               )
             })}

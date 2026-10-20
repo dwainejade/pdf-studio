@@ -6,7 +6,6 @@ import {
   FileStack,
   FileText,
   Info,
-  LayoutGrid,
   Redo2,
   RotateCw,
   Search,
@@ -23,7 +22,7 @@ import { ExportDrawer } from './components/export/ExportDrawer'
 import { loadPdfPages } from './lib/pdfLoader'
 import { loadWorkspace, savePdfFile, saveWorkspace } from './lib/workspaceDatabase'
 import { usePdfStore } from './store/pdfStore'
-import { useViewPreferences, type DetailSortKey } from './store/viewPreferences'
+import { useViewPreferences } from './store/viewPreferences'
 import type { UploadError } from './types/pdf'
 import './App.css'
 
@@ -53,14 +52,10 @@ function App() {
   const renamePage = usePdfStore((state) => state.renamePage)
   const undo = usePdfStore((state) => state.undo)
   const redo = usePdfStore((state) => state.redo)
-  const viewMode = useViewPreferences((state) => state.viewMode)
   const thumbnailSize = useViewPreferences((state) => state.thumbnailSize)
   const searchQuery = useViewPreferences((state) => state.searchQuery)
-  const detailSortKey = useViewPreferences((state) => state.detailSortKey)
-  const setViewMode = useViewPreferences((state) => state.setViewMode)
   const setThumbnailSize = useViewPreferences((state) => state.setThumbnailSize)
   const setSearchQuery = useViewPreferences((state) => state.setSearchQuery)
-  const setDetailSortKey = useViewPreferences((state) => state.setDetailSortKey)
   const selectedPageSet = useMemo(() => new Set(selectedPageIds), [selectedPageIds])
   const selectedPages = useMemo(
     () => pages.filter((page) => selectedPageSet.has(page.id)),
@@ -85,21 +80,6 @@ function App() {
       ].some((value) => value?.toLocaleLowerCase().includes(normalizedSearch))
     })
   }, [normalizedSearch, pages, pdfs])
-  const orderedVisiblePages = useMemo(() => {
-    if (viewMode !== 'detail' || detailSortKey === 'importOrder') return visiblePages
-    return [...visiblePages].sort((a, b) => {
-      const pdfA = pdfs.find((pdf) => pdf.id === a.sourcePdfId)
-      const pdfB = pdfs.find((pdf) => pdf.id === b.sourcePdfId)
-      if (detailSortKey === 'pageNumber') return a.pageNumber - b.pageNumber
-      if (detailSortKey === 'fileName') {
-        return a.sourcePdfName.localeCompare(b.sourcePdfName) || a.pageNumber - b.pageNumber
-      }
-      const metadataKey = detailSortKey === 'title' ? 'title' : 'author'
-      return (pdfA?.metadata[metadataKey] ?? '').localeCompare(pdfB?.metadata[metadataKey] ?? '') ||
-        a.sourcePdfName.localeCompare(b.sourcePdfName) ||
-        a.pageNumber - b.pageNumber
-    })
-  }, [detailSortKey, pdfs, viewMode, visiblePages])
   const inspectedPage = pages.find((page) => page.id === inspectedPageId)
   const inspectedPdf = inspectedPage
     ? pdfs.find((pdf) => pdf.id === inspectedPage.sourcePdfId)
@@ -381,44 +361,6 @@ function App() {
                 </button>
               )}
             </div>
-            <div className="view-mode-switcher" role="group" aria-label="Page view mode">
-              <button
-                className={`view-mode-button${viewMode === 'grid' ? ' is-active' : ''}`}
-                type="button"
-                aria-label="Grid view"
-                aria-pressed={viewMode === 'grid'}
-                onClick={() => setViewMode('grid')}
-              >
-                <LayoutGrid size={15} />
-                <span>Grid</span>
-              </button>
-              <button
-                className={`view-mode-button${viewMode === 'detail' ? ' is-active' : ''}`}
-                type="button"
-                aria-label="Detail view"
-                aria-pressed={viewMode === 'detail'}
-                onClick={() => setViewMode('detail')}
-              >
-                <FileText size={15} />
-                <span>Detail</span>
-              </button>
-            </div>
-            {viewMode === 'detail' && (
-              <label className="detail-sort-control">
-                Sort
-                <select
-                  aria-label="Sort detail view"
-                  value={detailSortKey}
-                  onChange={(event) => setDetailSortKey(event.target.value as DetailSortKey)}
-                >
-                  <option value="importOrder">Import order</option>
-                  <option value="fileName">File name</option>
-                  <option value="pageNumber">Page number</option>
-                  <option value="title">Title</option>
-                  <option value="author">Author</option>
-                </select>
-              </label>
-            )}
             <label className="thumbnail-size-control">
               <ZoomOut size={14} aria-hidden="true" />
               <input
@@ -512,11 +454,10 @@ function App() {
           </div>
         ) : (
           <PageGrid
-            pages={orderedVisiblePages}
+            pages={visiblePages}
             pdfs={pdfs}
             isProcessing={processingCount > 0}
             selectedPageIds={selectedPageIds}
-            viewMode={viewMode}
             thumbnailSize={thumbnailSize}
             searchQuery={normalizedSearch}
             onToggleSelection={togglePageSelection}
@@ -525,8 +466,6 @@ function App() {
             onRename={renamePage}
             onInspectPage={setInspectedPageId}
             onViewPage={setViewerPageId}
-            onRotatePage={(pageId) => rotatePages([pageId], 90)}
-            onDeletePage={(pageId) => deletePages([pageId])}
           />
         )}
       </main>
@@ -563,7 +502,7 @@ function App() {
       )}
       {viewerPageId && (
         <PagePreviewViewer
-          pages={orderedVisiblePages}
+          pages={visiblePages}
           pdfs={pdfs}
           pageId={viewerPageId}
           onNavigate={setViewerPageId}
