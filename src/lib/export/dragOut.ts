@@ -18,14 +18,14 @@ let pendingSignature: string | undefined
 // Only Chromium lets a page hand a file to the desktop during a drag (the DownloadURL type).
 const supportsDragOut = typeof navigator !== 'undefined' && 'userAgentData' in navigator
 
-function signatureOf(pages: PdfPage[]): string {
-  return JSON.stringify(pages.map((page) => [page.id, page.rotation, page.label ?? null]))
+function signatureOf(pages: PdfPage[], filename?: string): string {
+  return JSON.stringify([pages.map((page) => [page.id, page.rotation, page.label ?? null]), filename ?? null])
 }
 
 /** Builds the PDF in advance: a drag can only carry a file that already exists when it starts. */
-export function prepareDragOut(pages: PdfPage[], pdfs: UploadedPdf[]): void {
+export function prepareDragOut(pages: PdfPage[], pdfs: UploadedPdf[], filename?: string): void {
   if (!supportsDragOut || pages.length === 0) return
-  const signature = signatureOf(pages)
+  const signature = signatureOf(pages, filename)
   if (prepared?.signature === signature || pendingSignature === signature) return
 
   if (sourceDocuments.size > MAX_CACHED_SOURCES) sourceDocuments.clear()
@@ -39,7 +39,9 @@ export function prepareDragOut(pages: PdfPage[], pdfs: UploadedPdf[]): void {
         signature,
         url: URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' })),
         filename:
-          pages.length === 1
+          filename
+            ? mergedFilename(filename)
+            : pages.length === 1
             ? individualFilename(pages[0])
             : mergedFilename(`PDF Studio - ${pages.length} pages`),
       }
@@ -51,7 +53,7 @@ export function prepareDragOut(pages: PdfPage[], pdfs: UploadedPdf[]): void {
 }
 
 /** The `DownloadURL` payload for these pages, or undefined if the file is not built yet. */
-export function readyDragOutPayload(pages: PdfPage[]): string | undefined {
-  if (prepared?.signature !== signatureOf(pages)) return undefined
+export function readyDragOutPayload(pages: PdfPage[], filename?: string): string | undefined {
+  if (prepared?.signature !== signatureOf(pages, filename)) return undefined
   return `application/pdf:${prepared.filename}:${prepared.url}`
 }

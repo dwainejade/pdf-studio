@@ -10,8 +10,8 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { Check, FileText, Pencil, X } from 'lucide-react'
-import type { PdfPage, UploadedPdf } from '../../types/pdf'
+import { Check, FileText, Layers, Minus, Pencil, X } from 'lucide-react'
+import type { PageGroup, PdfPage, UploadedPdf } from '../../types/pdf'
 import { PageThumbnail } from './PageThumbnail'
 import { prepareDragOut, readyDragOutPayload } from '../../lib/export/dragOut'
 
@@ -21,17 +21,218 @@ type DropSide = 'before' | 'after'
 
 interface PageGridProps {
   pages: PdfPage[]
+  allPages: PdfPage[]
+  groups: PageGroup[]
   pdfs: UploadedPdf[]
   isProcessing: boolean
   selectedPageIds: string[]
   thumbnailSize: number
   searchQuery: string
-  onToggleSelection: (pageId: string) => void
   onSetSelection: (pageIds: string[]) => void
   onReorder: (activeId: string, overId: string, side?: DropSide) => void
   onRename: (pageId: string, label: string) => void
+  onRenameGroup: (groupId: string, name: string) => void
   onInspectPage: (pageId: string) => void
   onViewPage: (pageId: string) => void
+  onOpenGroup: (groupId: string) => void
+  expandedGroupId?: string
+  groupCanvasName?: string
+  onUngroupPage?: (pageId: string) => void
+}
+
+interface GroupCardProps {
+  group: PageGroup
+  pages: PdfPage[]
+  dragPages: PdfPage[]
+  dragFilename: string | undefined
+  sourcePdf: UploadedPdf
+  pdfs: UploadedPdf[]
+  isSelected: boolean
+  isBeingDragged: boolean
+  onSelect: (modifiers: { extend: boolean; toggle: boolean }) => void
+  onDragStart: (pageId: string) => void
+  onDragEnd: () => void
+  onDragOverPage: (pageId: string, event: ReactDragEvent<HTMLElement>) => void
+  onRename: (groupId: string, name: string) => void
+  onInspectPage: (pageId: string) => void
+  onViewPage: (pageId: string) => void
+  onOpenGroup: (groupId: string) => void
+}
+
+function GroupCard({
+  group,
+  pages,
+  dragPages,
+  dragFilename,
+  sourcePdf,
+  pdfs,
+  isSelected,
+  isBeingDragged,
+  onSelect,
+  onDragStart,
+  onDragEnd,
+  onDragOverPage,
+  onRename,
+  onInspectPage,
+  onViewPage,
+  onOpenGroup,
+}: GroupCardProps) {
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [draftName, setDraftName] = useState(group.name)
+  const cover = pages[0]
+  const firstPageNumber = pages[0].pageNumber
+  const lastPageNumber = pages[pages.length - 1].pageNumber
+  const pageDescription =
+    pages.every((page) => page.sourcePdfId === cover.sourcePdfId) &&
+    pages.every((page, index) => page.pageNumber === firstPageNumber + index)
+      ? `Pages ${firstPageNumber}–${lastPageNumber}`
+      : `${pages.length} pages`
+
+  const finishRename = () => {
+    const name = draftName.trim() || group.name
+    onRename(group.id, name)
+    prepareDragOut(pages, pdfs, name)
+    setIsRenaming(false)
+  }
+
+  const cancelRename = () => {
+    setDraftName(group.name)
+    setIsRenaming(false)
+  }
+
+  return (
+    <article
+      className={`page-card group-card${isSelected ? ' is-selected' : ''}${isBeingDragged ? ' is-dragging' : ''}`}
+      tabIndex={0}
+      draggable
+      data-page-id={cover.id}
+      data-page-ids={pages.map((page) => page.id).join(' ')}
+      aria-label={`${group.name}, ${pageDescription}${isSelected ? ', selected' : ''}`}
+      onPointerEnter={() => prepareDragOut(dragPages, pdfs, dragFilename)}
+      onPointerDown={() => prepareDragOut(dragPages, pdfs, dragFilename)}
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'copyMove'
+        event.dataTransfer.setData('text/plain', cover.id)
+        const payload = readyDragOutPayload(dragPages, dragFilename)
+        if (payload) event.dataTransfer.setData('DownloadURL', payload)
+        onDragStart(cover.id)
+      }}
+      onDragEnd={onDragEnd}
+      onDragOver={(event) => onDragOverPage(cover.id, event)}
+      onClick={(event) => {
+        if (event.target instanceof HTMLElement && event.target.closest('input, button')) return
+        onInspectPage(cover.id)
+        onSelect({ extend: event.shiftKey, toggle: event.ctrlKey || event.metaKey })
+      }}
+      onDoubleClick={(event) => {
+        if (event.target instanceof HTMLElement && event.target.closest('input, button')) return
+        onOpenGroup(group.id)
+      }}
+    >
+      <button
+        type="button"
+        className={`page-select-toggle${isSelected ? ' is-selected' : ''}`}
+        aria-label={isSelected ? `Deselect ${group.name}` : `Select ${group.name}`}
+        aria-pressed={isSelected}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          onInspectPage(cover.id)
+          onSelect({ extend: false, toggle: true })
+        }}
+      >
+        {isSelected && <span className="page-select-check">✓</span>}
+      </button>
+      <div className="group-preview-stack">
+        <span className="group-preview-sheet group-preview-sheet-back" />
+        <span className="group-preview-sheet group-preview-sheet-middle" />
+        <PageThumbnail
+          className="group-preview-front"
+          sourcePdfId={cover.sourcePdfId}
+          sourcePdfName={cover.sourcePdfName}
+          file={sourcePdf.file}
+          pageNumber={cover.pageNumber}
+          rotation={cover.rotation}
+          onExpand={() => onViewPage(cover.id)}
+        />
+        <button
+          type="button"
+          className="group-count-badge"
+          aria-label={`Open ${group.name} with ${pages.length} pages`}
+          title={`Open ${group.name}`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpenGroup(group.id)
+          }}
+        >
+          <Layers size={13} aria-hidden="true" />
+          {pages.length}
+        </button>
+      </div>
+      <div className="page-metadata group-metadata">
+        <div className="page-source group-source">
+          {isRenaming ? (
+            <input
+              className="page-label-input"
+              value={draftName}
+              autoFocus
+              aria-label={`Rename ${group.name}`}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+              onFocus={(event) => event.target.select()}
+              onChange={(event) => setDraftName(event.target.value)}
+              onBlur={finishRename}
+              onKeyDown={(event) => {
+                event.stopPropagation()
+                if (event.key === 'Enter') finishRename()
+                if (event.key === 'Escape') cancelRename()
+              }}
+            />
+          ) : (
+            <strong>{group.name}</strong>
+          )}
+          <span>{pageDescription}</span>
+        </div>
+        {isRenaming ? (
+          <div className="page-label-actions">
+            <button
+              type="button"
+              aria-label={`Save ${group.name}`}
+              onPointerDown={(event) => { event.stopPropagation(); event.preventDefault() }}
+              onClick={(event) => { event.stopPropagation(); finishRename() }}
+            >
+              <Check size={13} />
+            </button>
+            <button
+              type="button"
+              aria-label={`Cancel renaming ${group.name}`}
+              onPointerDown={(event) => { event.stopPropagation(); event.preventDefault() }}
+              onClick={(event) => { event.stopPropagation(); cancelRename() }}
+            >
+              <X size={13} />
+            </button>
+          </div>
+        ) : (
+          <button
+            className="page-rename-button"
+            type="button"
+            aria-label={`Rename ${group.name}`}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              setDraftName(group.name)
+              setIsRenaming(true)
+            }}
+          >
+            <Pencil size={13} />
+          </button>
+        )}
+      </div>
+    </article>
+  )
 }
 
 interface PageCardProps {
@@ -43,6 +244,7 @@ interface PageCardProps {
   isSelected: boolean
   isBeingDragged: boolean
   getDragPages: (pageId: string) => PdfPage[]
+  getDragFilename: (pages: PdfPage[]) => string | undefined
   onDragStart: (pageId: string) => void
   onDragEnd: () => void
   onDragOverPage: (pageId: string, event: ReactDragEvent<HTMLElement>) => void
@@ -51,6 +253,7 @@ interface PageCardProps {
   onRename: (pageId: string, label: string) => void
   onInspectPage: (pageId: string) => void
   onViewPage: (pageId: string) => void
+  onUngroupPage?: (pageId: string) => void
 }
 
 function PageCard({
@@ -62,6 +265,7 @@ function PageCard({
   isSelected,
   isBeingDragged,
   getDragPages,
+  getDragFilename,
   onDragStart,
   onDragEnd,
   onDragOverPage,
@@ -70,6 +274,7 @@ function PageCard({
   onRename,
   onInspectPage,
   onViewPage,
+  onUngroupPage,
 }: PageCardProps) {
   const [isRenaming, setIsRenaming] = useState(false)
   const [draftLabel, setDraftLabel] = useState(page.label ?? '')
@@ -139,13 +344,20 @@ function PageCard({
       className={`page-card${isDragging ? ' is-dragging' : ''}${isSelected ? ' is-selected' : ''}`}
       tabIndex={0}
       draggable
-      onPointerEnter={() => prepareDragOut(getDragPages(page.id), pdfs)}
-      onPointerDown={() => prepareDragOut(getDragPages(page.id), pdfs)}
+      onPointerEnter={() => {
+        const dragPages = getDragPages(page.id)
+        prepareDragOut(dragPages, pdfs, getDragFilename(dragPages))
+      }}
+      onPointerDown={() => {
+        const dragPages = getDragPages(page.id)
+        prepareDragOut(dragPages, pdfs, getDragFilename(dragPages))
+      }}
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = 'copyMove'
         event.dataTransfer.setData('text/plain', page.id)
         // Lets the same drag also drop as a file on the desktop or a folder.
-        const payload = readyDragOutPayload(getDragPages(page.id))
+        const dragPages = getDragPages(page.id)
+        const payload = readyDragOutPayload(dragPages, getDragFilename(dragPages))
         if (payload) event.dataTransfer.setData('DownloadURL', payload)
         onDragStart(page.id)
       }}
@@ -159,6 +371,7 @@ function PageCard({
         onViewPage(page.id)
       }}
       data-page-id={page.id}
+      data-page-ids={page.id}
       aria-label={`Page ${page.pageNumber} from ${page.sourcePdfName}${isSelected ? ', selected' : ''}. Use arrow keys to reorder.`}
     >
       <button
@@ -181,6 +394,21 @@ function PageCard({
       >
         <span className="page-number-badge">{page.pageNumber}</span>
       </PageThumbnail>
+      {onUngroupPage && page.groupId && (
+        <button
+          type="button"
+          className="page-ungroup-button"
+          aria-label={`Remove page ${page.pageNumber} from group`}
+          title="Remove from group"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation()
+            onUngroupPage(page.id)
+          }}
+        >
+          <Minus size={15} aria-hidden="true" />
+        </button>
+      )}
       <div className="page-metadata">
         <div className="page-source" title={page.sourcePdfName}>
           <span>Page {page.pageNumber}</span>
@@ -232,17 +460,23 @@ function PageCard({
 
 export function PageGrid({
   pages,
+  allPages,
+  groups,
   pdfs,
   isProcessing,
   selectedPageIds,
   thumbnailSize,
   searchQuery,
-  onToggleSelection,
   onSetSelection,
   onReorder,
   onRename,
+  onRenameGroup,
   onInspectPage,
   onViewPage,
+  onOpenGroup,
+  expandedGroupId,
+  groupCanvasName,
+  onUngroupPage,
 }: PageGridProps) {
   const sourcePdfById = useMemo(
     () => new Map(pdfs.map((pdf) => [pdf.id, pdf])),
@@ -252,6 +486,37 @@ export function PageGrid({
     () => new Set(selectedPageIds),
     [selectedPageIds],
   )
+  const gridItems = useMemo(() => {
+    const groupsById = new Map(groups.map((group) => [group.id, group]))
+    const emittedGroups = new Set<string>()
+    const items: Array<
+      | { type: 'page'; page: PdfPage; index: number }
+      | { type: 'group'; group: PageGroup; pages: PdfPage[]; index: number }
+    > = []
+    for (const page of pages) {
+      if (!page.groupId || expandedGroupId) {
+        items.push({ type: 'page', page, index: allPages.findIndex((item) => item.id === page.id) })
+        continue
+      }
+      const group = groupsById.get(page.groupId)
+      if (!group) {
+        items.push({ type: 'page', page, index: allPages.findIndex((item) => item.id === page.id) })
+        continue
+      }
+      if (emittedGroups.has(group.id)) continue
+      emittedGroups.add(group.id)
+      const members = allPages.filter((item) => item.groupId === group.id)
+      if (members.length > 0) {
+        items.push({
+          type: 'group',
+          group,
+          pages: members,
+          index: allPages.findIndex((item) => item.id === members[0].id),
+        })
+      }
+    }
+    return items
+  }, [allPages, expandedGroupId, groups, pages])
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [hoverSlot, setHoverSlot] = useState<string | null>(null)
   const hoverSlotRef = useRef<string | null>(null)
@@ -259,32 +524,54 @@ export function PageGrid({
   const cardPositionsRef = useRef(new Map<string, { x: number; y: number }>())
   const getDragPages = (pageId: string) =>
     selectedSet.has(pageId) && selectedSet.size > 1
-      ? pages.filter((page) => selectedSet.has(page.id))
-      : pages.filter((page) => page.id === pageId)
+      ? allPages.filter((page) => selectedSet.has(page.id))
+      : allPages.filter((page) => page.id === pageId)
+  const getDragFilename = (dragPages: PdfPage[]) =>
+    groupCanvasName &&
+    dragPages.length === pages.length &&
+    dragPages.every((page) => pages.some((item) => item.id === page.id))
+      ? groupCanvasName
+      : undefined
   const selectionAnchorId = useRef<string | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
   const marqueeStartRef = useRef<{ x: number; y: number; additive: boolean } | null>(null)
   const [marquee, setMarquee] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
 
-  const selectPage = (
-    pageId: string,
+  const selectPages = (
+    pageIds: string[],
     modifiers: { extend: boolean; toggle: boolean },
   ) => {
+    if (pageIds.length === 0) return
+    const selectionPages = expandedGroupId ? pages : allPages
     const anchorId = selectionAnchorId.current
     if (modifiers.extend && anchorId) {
-      const anchorIndex = pages.findIndex((page) => page.id === anchorId)
-      const pageIndex = pages.findIndex((page) => page.id === pageId)
-      if (anchorIndex >= 0 && pageIndex >= 0) {
-        const [start, end] = [anchorIndex, pageIndex].sort((a, b) => a - b)
-        const range = pages.slice(start, end + 1).map((page) => page.id)
+      const anchorIndex = selectionPages.findIndex((page) => page.id === anchorId)
+      const memberIndexes = pageIds.map((id) => selectionPages.findIndex((page) => page.id === id))
+      if (anchorIndex >= 0 && memberIndexes.every((index) => index >= 0)) {
+        const [start, end] = [anchorIndex, ...memberIndexes].reduce<[number, number]>(
+          ([low, high], index) => [Math.min(low, index), Math.max(high, index)],
+          [anchorIndex, anchorIndex],
+        )
+        const range = selectionPages.slice(start, end + 1).map((page) => page.id)
         onSetSelection(modifiers.toggle ? [...selectedPageIds, ...range] : range)
         return
       }
     }
-    selectionAnchorId.current = pageId
-    if (modifiers.toggle) onToggleSelection(pageId)
-    else onSetSelection([pageId])
+    selectionAnchorId.current = pageIds[0]
+    if (modifiers.toggle) {
+      const allSelected = pageIds.every((id) => selectedSet.has(id))
+      onSetSelection(
+        allSelected
+          ? selectedPageIds.filter((id) => !pageIds.includes(id))
+          : [...selectedPageIds, ...pageIds],
+      )
+    } else {
+      onSetSelection(pageIds)
+    }
   }
+
+  const selectPage = (pageId: string, modifiers: { extend: boolean; toggle: boolean }) =>
+    selectPages([pageId], modifiers)
 
   const handleGridPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || event.target !== event.currentTarget) return
@@ -324,7 +611,7 @@ export function PageGrid({
       top: Math.min(start.y, endY) + bounds.top,
       bottom: Math.max(start.y, endY) + bounds.top,
     }
-    const selectedIds = Array.from(grid.querySelectorAll<HTMLElement>('[data-page-id]'))
+    const selectedIds = Array.from(grid.querySelectorAll<HTMLElement>('[data-page-ids]'))
       .filter((card) => {
         const cardRect = card.getBoundingClientRect()
         return (
@@ -334,8 +621,8 @@ export function PageGrid({
           cardRect.bottom > selectionRect.top
         )
       })
-      .map((card) => card.dataset.pageId)
-      .filter((id): id is string => id !== undefined)
+      .flatMap((card) => card.dataset.pageIds?.split(' ') ?? [])
+      .filter(Boolean)
 
     onSetSelection(start.additive ? [...selectedPageIds, ...selectedIds] : selectedIds)
     if (selectedIds.length > 0) {
@@ -442,7 +729,7 @@ export function PageGrid({
     indicator.style.height = `${bounds.height}px`
     indicator.style.transform = `translate(${along}px, ${bounds.top - gridBounds.top}px)`
     indicator.style.opacity = '1'
-  }, [pages, draggingId, hoverSlot])
+  }, [gridItems, draggingId, hoverSlot])
 
   useEffect(() => {
     const forgetPositions = () => cardPositionsRef.current.clear()
@@ -482,7 +769,41 @@ export function PageGrid({
                 aria-hidden="true"
               />
             )}
-            {pages.map((page, index) => {
+            {gridItems.map((item) => {
+              if (item.type === 'group') {
+                const cover = item.pages[0]
+                const sourcePdf = sourcePdfById.get(cover.sourcePdfId)
+                if (!sourcePdf) return null
+                const isGroupSelected = item.pages.every((page) => selectedSet.has(page.id))
+                const isOnlyGroupSelected =
+                  isGroupSelected && selectedSet.size === item.pages.length
+                const dragPages =
+                  isGroupSelected && !isOnlyGroupSelected
+                    ? allPages.filter((page) => selectedSet.has(page.id))
+                    : item.pages
+                return (
+                  <GroupCard
+                    key={`group-${item.group.id}`}
+                    group={item.group}
+                    pages={item.pages}
+                    dragPages={dragPages}
+                    dragFilename={isGroupSelected && !isOnlyGroupSelected ? undefined : item.group.name}
+                    sourcePdf={sourcePdf}
+                    pdfs={pdfs}
+                    isSelected={isGroupSelected}
+                    isBeingDragged={draggingId === cover.id}
+                    onSelect={(modifiers) => selectPages(item.pages.map((page) => page.id), modifiers)}
+                    onDragStart={startDrag}
+                    onDragEnd={endDrag}
+                    onDragOverPage={handleDragOverPage}
+                    onRename={onRenameGroup}
+                    onInspectPage={onInspectPage}
+                    onViewPage={onViewPage}
+                    onOpenGroup={onOpenGroup}
+                  />
+                )
+              }
+              const { page, index } = item
               const sourcePdf = sourcePdfById.get(page.sourcePdfId)
               if (!sourcePdf) return null
               return (
@@ -490,10 +811,11 @@ export function PageGrid({
                   key={page.id}
                   page={page}
                   index={index}
-                  pages={pages}
+                  pages={allPages}
                   sourcePdf={sourcePdf}
                   pdfs={pdfs}
                   getDragPages={getDragPages}
+                  getDragFilename={getDragFilename}
                   isBeingDragged={draggingId === page.id}
                   onDragStart={startDrag}
                   onDragEnd={endDrag}
@@ -504,6 +826,7 @@ export function PageGrid({
                   onRename={onRename}
                   onInspectPage={onInspectPage}
                   onViewPage={onViewPage}
+                  onUngroupPage={onUngroupPage}
                 />
               )
             })}

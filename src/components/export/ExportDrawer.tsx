@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { FolderOpen, X } from 'lucide-react'
-import type { PdfPage, UploadedPdf } from '../../types/pdf'
+import type { PageGroup, PdfPage, UploadedPdf } from '../../types/pdf'
 import {
   canChooseExportDirectory,
   chooseExportDirectory,
@@ -12,14 +12,23 @@ import { mergedFilename } from '../../lib/export/filenames'
 interface ExportDrawerProps {
   pages: PdfPage[]
   pdfs: UploadedPdf[]
+  groups: PageGroup[]
   onClose: () => void
 }
 
 type ExportMode = 'merged' | 'individual'
 
-export function ExportDrawer({ pages, pdfs, onClose }: ExportDrawerProps) {
+export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps) {
   const [mode, setMode] = useState<ExportMode>('merged')
-  const [filename, setFilename] = useState('Merged_Document')
+  const groupName = groups.find((group) => {
+    const members = pages.filter((page) => page.groupId === group.id)
+    return (
+      pages.length > 0 &&
+      members.length === pages.length &&
+      pages.every((page) => page.groupId === group.id)
+    )
+  })?.name
+  const [filename, setFilename] = useState(groupName ?? 'Merged_Document')
   const [directory, setDirectory] = useState<ExportDirectoryHandle>()
   const [error, setError] = useState<string>()
   const [isExporting, setIsExporting] = useState(false)

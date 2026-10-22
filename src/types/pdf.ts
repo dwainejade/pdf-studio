@@ -29,6 +29,12 @@ export interface PdfPage {
   width: number
   height: number
   label?: string
+  groupId?: string
+}
+
+export interface PageGroup {
+  id: string
+  name: string
 }
 
 export interface UploadError {

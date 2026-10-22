@@ -14,7 +14,7 @@ export const useViewPreferences = create<ViewPreferences>()(
       thumbnailSize: 100,
       searchQuery: '',
       setThumbnailSize: (thumbnailSize) =>
-        set({ thumbnailSize: Math.min(200, Math.max(50, thumbnailSize)) }),
+        set({ thumbnailSize: Math.min(300, Math.max(50, thumbnailSize)) }),
       setSearchQuery: (searchQuery) => set({ searchQuery }),
     }),
     {

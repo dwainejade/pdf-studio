@@ -21,6 +21,107 @@
     linear-gradient(135deg, #292936 0%, #373440 48%, #24232d 100%);
 }
 
+.app-shell.is-group-canvas {
+  background-image:
+    radial-gradient(rgba(176, 190, 222, 0.12) 0.7px, transparent 0.7px),
+    linear-gradient(135deg, #202a36 0%, #293846 48%, #1d2732 100%);
+}
+
+.canvas.group-canvas {
+  background: rgba(25, 35, 46, 0.32);
+}
+
+.group-back-button {
+  display: inline-flex;
+  min-height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(191, 202, 230, 0.2);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e1e7f3;
+  padding: 0 11px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.group-back-button:hover {
+  border-color: rgba(197, 210, 244, 0.42);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.group-canvas-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding-top: 26px;
+}
+
+.group-canvas-heading h1 {
+  margin: 0;
+  color: #f1f3fa;
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.group-canvas-title,
+.group-canvas-rename {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-canvas-title > button,
+.group-canvas-rename > button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgba(191, 202, 230, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e5;
+  cursor: pointer;
+}
+
+.group-canvas-title > button:hover,
+.group-canvas-rename > button:hover {
+  border-color: rgba(197, 210, 244, 0.42);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.group-canvas-rename input {
+  width: min(360px, 50vw);
+  min-height: 36px;
+  border: 1px solid rgba(197, 210, 244, 0.36);
+  border-radius: 8px;
+  outline: none;
+  background: rgba(15, 22, 31, 0.7);
+  color: #f1f3fa;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.group-canvas-rename input:focus {
+  border-color: #a995f2;
+  box-shadow: 0 0 0 3px rgba(169, 149, 242, 0.15);
+}
+
+.group-canvas-heading span {
+  color: #aebbd0;
+  font-size: 12px;
+}
+
+.group-canvas .page-grid {
+  min-height: calc(100vh - 230px);
+  padding-top: 20px;
+}
+
 .toolbar-brand {
   display: inline-flex;
   min-height: 34px;
@@ -925,6 +1026,8 @@
   right: 24px;
   bottom: 24px;
   display: inline-flex;
+  flex-wrap: wrap;
+  max-width: calc(100vw - 48px);
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
@@ -1642,6 +1745,94 @@
     border-color 150ms ease;
 }
 
+.group-preview-stack {
+  position: relative;
+  height: clamp(170px, var(--page-preview-height, 224px), 448px);
+}
+
+.group-preview-sheet {
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(208, 197, 255, 0.35);
+  border-radius: 12px;
+  background: #aaa5bb;
+  pointer-events: none;
+}
+
+.group-preview-sheet-back {
+  transform: translate(8px, -7px) rotate(4deg);
+}
+
+.group-preview-sheet-middle {
+  transform: translate(4px, -4px) rotate(2deg);
+  background: #d0cbd9;
+}
+
+.page-grid.view-grid .group-preview-front {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: #e8e6e8;
+}
+
+.group-count-badge {
+  position: absolute;
+  z-index: 2;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  min-width: 38px;
+  height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border-radius: 14px;
+  background: #8061e9;
+  color: #fff;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(24, 18, 46, 0.28);
+  pointer-events: none;
+  cursor: pointer;
+}
+
+button.group-count-badge {
+  border: 0;
+  pointer-events: auto;
+}
+
+button.group-count-badge:hover {
+  background: #9276f3;
+  transform: scale(1.04);
+}
+
+.page-ungroup-button {
+  position: absolute;
+  z-index: 4;
+  right: 10px;
+  bottom: 49px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid rgba(255, 180, 180, 0.55);
+  border-radius: 50%;
+  background: rgba(158, 53, 62, 0.94);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(34, 7, 10, 0.32);
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+.page-ungroup-button:hover {
+  background: #c44855;
+  transform: scale(1.08);
+}
+
 .page-grid.view-grid .page-card:hover .page-preview {
   border-color: rgba(195, 181, 255, 0.5);
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.27);
@@ -1714,6 +1905,17 @@
 
 .page-grid.view-grid .page-source > span:first-child {
   display: none;
+}
+
+.page-grid.view-grid .group-source > span:first-child {
+  display: block;
+}
+
+.page-grid.view-grid .group-source > span:first-child::before {
+  content: "◆";
+  margin-right: 6px;
+  color: #d7d0ef;
+  font-size: 11px;
 }
 
 /* Renaming happens in place: the input replaces the name without changing the row's height. */

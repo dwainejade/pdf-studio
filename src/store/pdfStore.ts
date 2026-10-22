@@ -1,11 +1,13 @@
 import { create } from 'zustand'
-import type { PdfPage, UploadedPdf } from '../types/pdf'
+import type { PageGroup, PdfPage, UploadedPdf } from '../types/pdf'
 
 const HISTORY_LIMIT = 50
 
 interface StoreSnapshot {
   pdfs: UploadedPdf[]
   pages: PdfPage[]
+  groups: PageGroup[]
+  nextGroupNumber: number
   selectedPageIds: string[]
 }
 
@@ -21,6 +23,9 @@ interface PdfStore extends StoreSnapshot {
   deletePages: (pageIds: string[]) => void
   rotatePages: (pageIds: string[], delta: number) => void
   renamePage: (pageId: string, label: string) => void
+  groupPages: (pageIds: string[]) => void
+  renameGroup: (groupId: string, name: string) => void
+  ungroupPages: (pageIds: string[]) => void
   undo: () => void
   redo: () => void
 }
@@ -34,6 +39,8 @@ function snapshot(state: StoreSnapshot): StoreSnapshot {
   return {
     pdfs: state.pdfs,
     pages: state.pages,
+    groups: state.groups,
+    nextGroupNumber: state.nextGroupNumber,
     selectedPageIds: state.selectedPageIds,
   }
 }
@@ -44,6 +51,8 @@ export const usePdfStore = create<PdfStore>((set, get) => {
     if (
       current.pdfs === next.pdfs &&
       current.pages === next.pages &&
+      current.groups === next.groups &&
+      current.nextGroupNumber === next.nextGroupNumber &&
       current.selectedPageIds === next.selectedPageIds
     ) {
       return
@@ -58,6 +67,8 @@ export const usePdfStore = create<PdfStore>((set, get) => {
   return {
     pdfs: [],
     pages: [],
+    groups: [],
+    nextGroupNumber: 0,
     selectedPageIds: [],
     past: [],
     future: [],
@@ -66,12 +77,16 @@ export const usePdfStore = create<PdfStore>((set, get) => {
       commit({
         pdfs: [...current.pdfs, pdf],
         pages: [...current.pages, ...pages],
+        groups: current.groups,
+        nextGroupNumber: current.nextGroupNumber,
         selectedPageIds: current.selectedPageIds,
       })
     },
     restoreWorkspace: (workspace) =>
       set({
         ...workspace,
+        groups: workspace.groups ?? [],
+        nextGroupNumber: workspace.nextGroupNumber ?? 0,
         past: [],
         future: [],
       }),
@@ -82,14 +97,23 @@ export const usePdfStore = create<PdfStore>((set, get) => {
       if (activeIndex < 0 || overIndex < 0 || activeIndex === overIndex) return
 
       const pages = [...current.pages]
-      const [activePage] = pages.splice(activeIndex, 1)
+      const activeGroupId = current.pages[activeIndex].groupId
+      if (activeGroupId && current.pages[overIndex].groupId === activeGroupId) return
+      const activeBlock = activeGroupId
+        ? pages.filter((page) => page.groupId === activeGroupId)
+        : [current.pages[activeIndex]]
+      const activeIds = new Set(activeBlock.map((page) => page.id))
+      const orderedPages = pages.filter((page) => !activeIds.has(page.id))
       if (side) {
-        const targetIndex = pages.findIndex((page) => page.id === overId)
-        pages.splice(side === 'after' ? targetIndex + 1 : targetIndex, 0, activePage)
+        const targetIndex = orderedPages.findIndex((page) => page.id === overId)
+        if (targetIndex < 0) return
+        orderedPages.splice(side === 'after' ? targetIndex + 1 : targetIndex, 0, ...activeBlock)
       } else {
-        pages.splice(overIndex, 0, activePage)
+        const targetIndex = orderedPages.findIndex((page) => page.id === overId)
+        if (targetIndex < 0) return
+        orderedPages.splice(targetIndex, 0, ...activeBlock)
       }
-      commit({ ...snapshot(current), pages })
+      commit({ ...snapshot(current), pages: orderedPages })
     },
     togglePageSelection: (pageId) => {
       const current = get()
@@ -122,9 +146,12 @@ export const usePdfStore = create<PdfStore>((set, get) => {
       const pages = current.pages.filter((page) => !idsToDelete.has(page.id))
       if (pages.length === current.pages.length) return
       const remainingPdfIds = new Set(pages.map((page) => page.sourcePdfId))
+      const remainingGroupIds = new Set(pages.map((page) => page.groupId).filter(Boolean))
       commit({
         pdfs: current.pdfs.filter((pdf) => remainingPdfIds.has(pdf.id)),
         pages,
+        groups: current.groups.filter((group) => remainingGroupIds.has(group.id)),
+        nextGroupNumber: current.nextGroupNumber,
         selectedPageIds: current.selectedPageIds.filter((id) => !idsToDelete.has(id)),
       })
     },
@@ -148,6 +175,75 @@ export const usePdfStore = create<PdfStore>((set, get) => {
           : page,
       )
       commit({ ...snapshot(current), pages })
+    },
+    groupPages: (pageIds) => {
+      const current = get()
+      const idsToGroup = new Set(pageIds)
+      const groupedPages = current.pages.filter((page) => idsToGroup.has(page.id))
+      if (groupedPages.length < 2) return
+      const existingGroupId = groupedPages[0].groupId
+      if (
+        existingGroupId &&
+        groupedPages.every((page) => page.groupId === existingGroupId) &&
+        current.groups.some((group) => group.id === existingGroupId)
+      ) {
+        return
+      }
+
+      const groupNumber = current.nextGroupNumber + 1
+      const id = crypto.randomUUID()
+      const groups = current.groups.filter(
+        (group) => !groupedPages.some((page) => page.groupId === group.id),
+      )
+      groups.push({ id, name: `Group ${groupNumber}` })
+      const pages = current.pages.map((page) =>
+        idsToGroup.has(page.id) ? { ...page, groupId: id } : page,
+      )
+      commit({ ...snapshot(current), pages, groups, nextGroupNumber: groupNumber })
+    },
+    renameGroup: (groupId, name) => {
+      const normalizedName = name.trim()
+      if (!normalizedName) return
+      const current = get()
+      if (!current.groups.some((group) => group.id === groupId && group.name !== normalizedName)) {
+        return
+      }
+      const groups = current.groups.map((group) =>
+        group.id === groupId ? { ...group, name: normalizedName } : group,
+      )
+      commit({ ...snapshot(current), groups })
+    },
+    ungroupPages: (pageIds) => {
+      const current = get()
+      const idsToUngroup = new Set(pageIds)
+      let pages: PdfPage[] = current.pages.map((page) => {
+        if (!idsToUngroup.has(page.id) || !page.groupId) return page
+        const { groupId: _groupId, ...ungroupedPage } = page
+        return ungroupedPage
+      })
+      const memberCounts = new Map<string, number>()
+      for (const page of pages) {
+        if (page.groupId) memberCounts.set(page.groupId, (memberCounts.get(page.groupId) ?? 0) + 1)
+      }
+      const dissolvedGroupIds = new Set(
+        [...memberCounts].filter(([, count]) => count < 2).map(([groupId]) => groupId),
+      )
+      if (dissolvedGroupIds.size > 0) {
+        pages = pages.map((page) => {
+          if (!page.groupId || !dissolvedGroupIds.has(page.groupId)) return page
+          const { groupId: _groupId, ...ungroupedPage } = page
+          return ungroupedPage
+        })
+      }
+      const remainingGroupIds = new Set(pages.map((page) => page.groupId).filter(Boolean))
+      const groups = current.groups.filter((group) => remainingGroupIds.has(group.id))
+      if (
+        pages.every((page, index) => page === current.pages[index]) &&
+        groups.length === current.groups.length
+      ) {
+        return
+      }
+      commit({ ...snapshot(current), pages, groups })
     },
     renamePage: (pageId, label) => {
       const current = get()

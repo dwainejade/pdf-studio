@@ -2,10 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useDropzone, type FileRejection } from 'react-dropzone'
 import {
   AlertCircle,
+  ArrowLeft,
   ArrowDownToLine,
+  Check,
   FileStack,
   FileText,
   Info,
+  Layers,
+  Pencil,
   Redo2,
   RotateCw,
   Search,
@@ -34,23 +38,34 @@ function App() {
   const [inspectedPageId, setInspectedPageId] = useState<string | null>(null)
   const [isInspectorOpen, setIsInspectorOpen] = useState(false)
   const [viewerPageId, setViewerPageId] = useState<string | null>(null)
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
+  const [isRenamingActiveGroup, setIsRenamingActiveGroup] = useState(false)
+  const [activeGroupNameDraft, setActiveGroupNameDraft] = useState('')
   const [isWorkspaceReady, setIsWorkspaceReady] = useState(false)
   const [storageError, setStorageError] = useState<string | null>(null)
   const [isSavingWorkspace, setIsSavingWorkspace] = useState(false)
   const pages = usePdfStore((state) => state.pages)
   const pdfs = usePdfStore((state) => state.pdfs)
   const selectedPageIds = usePdfStore((state) => state.selectedPageIds)
+  const groups = usePdfStore((state) => state.groups)
+  const activeGroup = groups.find((group) => group.id === activeGroupId)
+  const activeGroupPages = useMemo(
+    () => activeGroup ? pages.filter((page) => page.groupId === activeGroup.id) : [],
+    [activeGroup, pages],
+  )
   const canUndo = usePdfStore((state) => state.past.length > 0)
   const canRedo = usePdfStore((state) => state.future.length > 0)
   const addPdf = usePdfStore((state) => state.addPdf)
   const restoreWorkspace = usePdfStore((state) => state.restoreWorkspace)
   const reorderPages = usePdfStore((state) => state.reorderPages)
-  const togglePageSelection = usePdfStore((state) => state.togglePageSelection)
   const setPageSelection = usePdfStore((state) => state.setPageSelection)
   const clearSelection = usePdfStore((state) => state.clearSelection)
   const deletePages = usePdfStore((state) => state.deletePages)
   const rotatePages = usePdfStore((state) => state.rotatePages)
   const renamePage = usePdfStore((state) => state.renamePage)
+  const groupPages = usePdfStore((state) => state.groupPages)
+  const renameGroup = usePdfStore((state) => state.renameGroup)
+  const ungroupPages = usePdfStore((state) => state.ungroupPages)
   const undo = usePdfStore((state) => state.undo)
   const redo = usePdfStore((state) => state.redo)
   const thumbnailSize = useViewPreferences((state) => state.thumbnailSize)
@@ -62,13 +77,18 @@ function App() {
     () => pages.filter((page) => selectedPageSet.has(page.id)),
     [pages, selectedPageSet],
   )
-  const allPagesSelected = pages.length > 0 && selectedPages.length === pages.length
+  const selectionScopePages = activeGroup ? activeGroupPages : pages
+  const allPagesSelected =
+    selectionScopePages.length > 0 &&
+    selectionScopePages.every((page) => selectedPageSet.has(page.id))
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase()
   const visiblePages = useMemo(() => {
     if (!normalizedSearch) return pages
     return pages.filter((page) => {
       const metadata = pdfs.find((pdf) => pdf.id === page.sourcePdfId)?.metadata
+      const groupName = groups.find((group) => group.id === page.groupId)?.name
       return [
+        groupName,
         page.label,
         page.sourcePdfName,
         String(page.pageNumber),
@@ -80,7 +100,7 @@ function App() {
         metadata?.producer,
       ].some((value) => value?.toLocaleLowerCase().includes(normalizedSearch))
     })
-  }, [normalizedSearch, pages, pdfs])
+  }, [groups, normalizedSearch, pages, pdfs])
   const inspectedPage = pages.find((page) => page.id === inspectedPageId)
   const inspectedPdf = inspectedPage
     ? pdfs.find((pdf) => pdf.id === inspectedPage.sourcePdfId)
@@ -140,7 +160,13 @@ function App() {
       const current = usePdfStore.getState()
       setIsSavingWorkspace(true)
       saveQueue = saveQueue
-        .then(() => saveWorkspace(current.pdfs, current.pages, current.selectedPageIds))
+        .then(() => saveWorkspace(
+          current.pdfs,
+          current.pages,
+          current.groups,
+          current.nextGroupNumber,
+          current.selectedPageIds,
+        ))
         .then(() => {
           setStorageError(null)
           setIsSavingWorkspace(false)
@@ -160,7 +186,13 @@ function App() {
       saveTimer = window.setTimeout(() => {
         saveTimer = undefined
         saveQueue = saveQueue
-          .then(() => saveWorkspace(state.pdfs, state.pages, state.selectedPageIds))
+          .then(() => saveWorkspace(
+            state.pdfs,
+            state.pages,
+            state.groups,
+            state.nextGroupNumber,
+            state.selectedPageIds,
+          ))
           .then(() => {
             setStorageError(null)
             setIsSavingWorkspace(false)
@@ -208,13 +240,32 @@ function App() {
         return
       }
 
+      if (
+        event.shiftKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        event.key.toLowerCase() === 'g'
+      ) {
+        const selected = pages.filter((page) => selectedPageIds.includes(page.id))
+        const firstGroupId = selected[0]?.groupId
+        const isCompleteExistingGroup =
+          Boolean(firstGroupId) &&
+          selected.every((page) => page.groupId === firstGroupId) &&
+          selected.length === pages.filter((page) => page.groupId === firstGroupId).length
+        if (selected.length >= 2 && !isCompleteExistingGroup) {
+          event.preventDefault()
+          groupPages(selected.map((page) => page.id))
+        }
+        return
+      }
+
       const commandKey = event.ctrlKey || event.metaKey
       if (!commandKey) return
       const key = event.key.toLowerCase()
 
       if (key === 'a') {
         event.preventDefault()
-        setPageSelection(allPagesSelected ? [] : pages.map((page) => page.id))
+        setPageSelection(allPagesSelected ? [] : selectionScopePages.map((page) => page.id))
       } else if (key === 'z' && event.shiftKey) {
         event.preventDefault()
         redo()
@@ -229,7 +280,7 @@ function App() {
 
     window.addEventListener('keydown', handleShortcut)
     return () => window.removeEventListener('keydown', handleShortcut)
-  }, [allPagesSelected, pages, pendingDeletePageIds.length, redo, requestDeletePages, selectedPageIds, setPageSelection, undo])
+  }, [allPagesSelected, groupPages, pages, pendingDeletePageIds.length, redo, requestDeletePages, selectedPageIds, selectionScopePages, setPageSelection, undo])
 
   const handleRejected = useCallback((rejectedFiles: FileRejection[]) => {
     setErrors((current) => [
@@ -302,35 +353,80 @@ function App() {
   })
 
   const hasSelection = selectedPageIds.length > 0
+  const selectedPagesAreOneGroup =
+    selectedPages.length > 0 &&
+    Boolean(selectedPages[0].groupId) &&
+    selectedPages.every((page) => page.groupId === selectedPages[0].groupId) &&
+    selectedPages.length === pages.filter((page) => page.groupId === selectedPages[0].groupId).length
+  const canGroupSelection = selectedPages.length >= 2 && !selectedPagesAreOneGroup
   const closeViewer = useCallback(() => setViewerPageId(null), [])
+  const openGroup = (groupId: string) => {
+    clearSelection()
+    setActiveGroupId(groupId)
+  }
+  const leaveGroup = () => {
+    clearSelection()
+    setIsRenamingActiveGroup(false)
+    setActiveGroupId(null)
+  }
+  const startRenamingActiveGroup = () => {
+    if (!activeGroup) return
+    setActiveGroupNameDraft(activeGroup.name)
+    setIsRenamingActiveGroup(true)
+  }
+  const finishRenamingActiveGroup = () => {
+    if (!activeGroup) return
+    const name = activeGroupNameDraft.trim()
+    if (name) renameGroup(activeGroup.id, name)
+    setIsRenamingActiveGroup(false)
+  }
+  const cancelRenamingActiveGroup = () => {
+    setActiveGroupNameDraft(activeGroup?.name ?? '')
+    setIsRenamingActiveGroup(false)
+  }
+  const ungroupPageFromCanvas = (pageId: string) => {
+    if (activeGroupPages.length <= 2) setActiveGroupId(null)
+    ungroupPages([pageId])
+  }
 
   return (
     <div
       {...getRootProps({
-        className: `app-shell${isDragActive ? ' is-dragging' : ''}`,
+        className: `app-shell${isDragActive ? ' is-dragging' : ''}${activeGroup ? ' is-group-canvas' : ''}`,
         'aria-label': 'PDF Studio workspace. Drop PDFs anywhere to add them.',
       })}
     >
       <input {...getInputProps({ className: 'workspace-file-input' })} />
-      <main className="canvas">
+      <main className={`canvas${activeGroup ? ' group-canvas' : ''}`}>
         <div className="canvas-toolbar">
           <div className="toolbar-brand">
-            <span className="toolbar-brand-mark">
-              <FileStack size={18} strokeWidth={1.8} />
-            </span>
-            <span className="toolbar-brand-name">PDF <strong>Studio</strong></span>
-            <span className="toolbar-divider" aria-hidden="true" />
-            <span className="toolbar-file-status">
-              <span className="status-dot" />
-              {pages.length > 0
-                ? `${pdfs.length} ${pdfs.length === 1 ? 'PDF' : 'PDFs'} · ${pages.length} ${pages.length === 1 ? 'page' : 'pages'}`
-                : 'Local workspace'}
-            </span>
+            {activeGroup ? (
+              <button className="group-back-button" type="button" onClick={leaveGroup}>
+                <ArrowLeft size={15} />
+                <span>Back to home</span>
+              </button>
+            ) : (
+              <>
+                <span className="toolbar-brand-mark">
+                  <FileStack size={18} strokeWidth={1.8} />
+                </span>
+                <span className="toolbar-brand-name">PDF <strong>Studio</strong></span>
+                <span className="toolbar-divider" aria-hidden="true" />
+                <span className="toolbar-file-status">
+                  <span className="status-dot" />
+                  {pages.length > 0
+                    ? `${pdfs.length} ${pdfs.length === 1 ? 'PDF' : 'PDFs'} · ${pages.length} ${pages.length === 1 ? 'page' : 'pages'}`
+                    : 'Local workspace'}
+                </span>
+              </>
+            )}
           </div>
           <div className="canvas-summary">
             <FileText size={15} />
             <span>
-              {pages.length > 0
+              {activeGroup
+                ? `${activeGroupPages.length} ${activeGroupPages.length === 1 ? 'page' : 'pages'} in ${activeGroup.name}`
+                : pages.length > 0
                 ? `${pages.length} ${pages.length === 1 ? 'page' : 'pages'}`
                 : 'Workspace'}
             </span>
@@ -385,7 +481,7 @@ function App() {
                 type="range"
                 aria-label="Thumbnail size"
                 min="50"
-                max="200"
+                max="300"
                 step="10"
                 value={thumbnailSize}
                 onChange={(event) => setThumbnailSize(Number(event.target.value))}
@@ -393,14 +489,15 @@ function App() {
               <ZoomIn size={14} aria-hidden="true" />
               <output>{thumbnailSize}%</output>
             </label>
-            <button
+            {!activeGroup && <button
               className="workspace-action-button"
               type="button"
-              onClick={() => (allPagesSelected ? clearSelection() : setPageSelection(pages.map((page) => page.id)))}
-              disabled={pages.length === 0}
+              title="Select all pages (Ctrl/Cmd+A)"
+              onClick={() => (allPagesSelected ? clearSelection() : setPageSelection(selectionScopePages.map((page) => page.id)))}
+              disabled={selectionScopePages.length === 0}
             >
               {allPagesSelected ? 'Deselect All' : 'Select All'}
-            </button>
+            </button>}
             <button
               className={`workspace-action-icon${isInspectorOpen ? ' is-active' : ''}`}
               type="button"
@@ -466,30 +563,108 @@ function App() {
           </section>
         )}
 
-        {pages.length === 0 && processingCount === 0 ? (
+        {!activeGroup && pages.length === 0 && processingCount === 0 ? (
           <div className="canvas-empty-hint">
             <span>Drop PDFs anywhere to get started</span>
           </div>
         ) : (
-          <PageGrid
-            pages={visiblePages}
-            pdfs={pdfs}
-            isProcessing={processingCount > 0}
-            selectedPageIds={selectedPageIds}
-            thumbnailSize={thumbnailSize}
-            searchQuery={normalizedSearch}
-            onToggleSelection={togglePageSelection}
-            onSetSelection={setPageSelection}
-            onReorder={reorderPages}
-            onRename={renamePage}
-            onInspectPage={setInspectedPageId}
-            onViewPage={setViewerPageId}
-          />
+          <>
+            {activeGroup && (
+              <section className="group-canvas-heading" aria-label={`${activeGroup.name} group canvas`}>
+                {isRenamingActiveGroup ? (
+                  <form
+                    className="group-canvas-rename"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      finishRenamingActiveGroup()
+                    }}
+                  >
+                    <input
+                      autoFocus
+                      aria-label="Group name"
+                      value={activeGroupNameDraft}
+                      onChange={(event) => setActiveGroupNameDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                          event.preventDefault()
+                          cancelRenamingActiveGroup()
+                        }
+                      }}
+                    />
+                    <button type="submit" aria-label="Save group name" title="Save group name">
+                      <Check size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Cancel group rename"
+                      title="Cancel"
+                      onClick={cancelRenamingActiveGroup}
+                    >
+                      <X size={15} />
+                    </button>
+                  </form>
+                ) : (
+                  <div className="group-canvas-title">
+                    <h1>{activeGroup.name}</h1>
+                    <button
+                      type="button"
+                      aria-label={`Rename ${activeGroup.name}`}
+                      title="Rename group"
+                      onClick={startRenamingActiveGroup}
+                    >
+                      <Pencil size={14} />
+                    </button>
+                  </div>
+                )}
+                <span>{activeGroupPages.length} pages</span>
+              </section>
+            )}
+            <PageGrid
+              pages={activeGroup ? activeGroupPages : visiblePages}
+              allPages={pages}
+              groups={groups}
+              pdfs={pdfs}
+              isProcessing={processingCount > 0}
+              selectedPageIds={selectedPageIds}
+              thumbnailSize={thumbnailSize}
+              searchQuery={normalizedSearch}
+              onSetSelection={setPageSelection}
+              onReorder={reorderPages}
+              onRename={renamePage}
+              onRenameGroup={renameGroup}
+              onInspectPage={setInspectedPageId}
+              onViewPage={setViewerPageId}
+              onOpenGroup={openGroup}
+              expandedGroupId={activeGroup?.id}
+              groupCanvasName={activeGroup?.name}
+              onUngroupPage={activeGroup ? ungroupPageFromCanvas : undefined}
+            />
+          </>
         )}
       </main>
 
       {hasSelection && (
         <div className="page-action-toolbar" aria-label="Page actions">
+          <button
+            type="button"
+            className="page-action-button"
+            disabled={!canGroupSelection}
+            title={canGroupSelection ? 'Group selected pages (Shift+G)' : 'Select two or more pages to create a group'}
+            onClick={() => groupPages(selectedPageIds)}
+          >
+            <FileStack size={16} />
+            <span>Group</span>
+          </button>
+          {selectedPages.some((page) => page.groupId) && (
+            <button
+              type="button"
+              className="page-action-button"
+              onClick={() => ungroupPages(selectedPageIds)}
+            >
+              <Layers size={16} />
+              <span>Ungroup</span>
+            </button>
+          )}
           <button
             type="button"
             className="page-action-button"
@@ -541,6 +716,7 @@ function App() {
         <ExportDrawer
           pages={selectedPages}
           pdfs={pdfs}
+          groups={groups}
           onClose={() => setIsExportOpen(false)}
         />
       )}

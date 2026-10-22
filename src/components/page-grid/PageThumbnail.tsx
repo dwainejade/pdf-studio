@@ -10,6 +10,7 @@ interface PageThumbnailProps {
   file: File
   pageNumber: number
   rotation: number
+  className?: string
   onExpand?: () => void
   children?: ReactNode
 }
@@ -20,6 +21,7 @@ export function PageThumbnail({
   file,
   pageNumber,
   rotation,
+  className,
   onExpand,
   children,
 }: PageThumbnailProps) {
@@ -161,7 +163,7 @@ export function PageThumbnail({
   return (
     <div
       ref={containerRef}
-      className={`page-preview${hasError ? ' has-preview-error' : ''}`}
+      className={`page-preview${hasError ? ' has-preview-error' : ''}${className ? ` ${className}` : ''}`}
       aria-label={`Preview for page ${pageNumber} of ${sourcePdfName}`}
     >
       <canvas

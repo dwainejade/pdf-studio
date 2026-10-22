@@ -1,4 +1,4 @@
-import type { PdfPage, PdfMetadata, UploadedPdf } from '../types/pdf'
+import type { PageGroup, PdfPage, PdfMetadata, UploadedPdf } from '../types/pdf'
 
 const DATABASE_NAME = 'pdf-studio-workspace'
 const DATABASE_VERSION = 1
@@ -17,12 +17,16 @@ interface StoredWorkspace {
   id: typeof WORKSPACE_KEY
   pdfs: Array<Omit<UploadedPdf, 'file'>>
   pages: PdfPage[]
+  groups?: PageGroup[]
+  nextGroupNumber?: number
   selectedPageIds: string[]
 }
 
 export interface RestoredWorkspace {
   pdfs: UploadedPdf[]
   pages: PdfPage[]
+  groups: PageGroup[]
+  nextGroupNumber: number
   selectedPageIds: string[]
 }
 
@@ -120,7 +124,9 @@ export async function loadWorkspace(): Promise<RestoredWorkspace> {
     await cleanupDone
   }
 
-  if (!storedWorkspace) return { pdfs: [], pages: [], selectedPageIds: [] }
+  if (!storedWorkspace) {
+    return { pdfs: [], pages: [], groups: [], nextGroupNumber: 0, selectedPageIds: [] }
+  }
 
   const fileRecords = new Map(storedPdfs.map((pdf) => [pdf.id, pdf]))
   const pdfs = storedWorkspace.pdfs.flatMap((pdf) => {
@@ -137,10 +143,18 @@ export async function loadWorkspace(): Promise<RestoredWorkspace> {
   const pdfIds = new Set(pdfs.map((pdf) => pdf.id))
   const pages = storedWorkspace.pages.filter((page) => pdfIds.has(page.sourcePdfId))
   const pageIds = new Set(pages.map((page) => page.id))
+  const groupIds = new Set(pages.map((page) => page.groupId).filter(Boolean))
+  const groups = (storedWorkspace.groups ?? []).filter((group) => groupIds.has(group.id))
+  const highestGroupNumber = groups.reduce((highest, group) => {
+    const match = /^Group (\d+)$/i.exec(group.name.trim())
+    return match ? Math.max(highest, Number(match[1])) : highest
+  }, 0)
 
   return {
     pdfs,
     pages,
+    groups,
+    nextGroupNumber: Math.max(storedWorkspace.nextGroupNumber ?? 0, highestGroupNumber),
     selectedPageIds: storedWorkspace.selectedPageIds.filter((id) => pageIds.has(id)),
   }
 }
@@ -148,6 +162,8 @@ export async function loadWorkspace(): Promise<RestoredWorkspace> {
 export async function saveWorkspace(
   pdfs: UploadedPdf[],
   pages: PdfPage[],
+  groups: PageGroup[],
+  nextGroupNumber: number,
   selectedPageIds: string[],
 ): Promise<void> {
   const database = await openDatabase()
@@ -161,6 +177,8 @@ export async function saveWorkspace(
     id: WORKSPACE_KEY,
     pdfs: storedPdfs,
     pages,
+    groups,
+    nextGroupNumber,
     selectedPageIds,
   } satisfies StoredWorkspace)
   await transactionDone(transaction)
