@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { flushSync } from 'react-dom'
-import { ChevronLeft, ChevronRight, RotateCcw, RotateCw, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Pencil, RotateCcw, RotateCw, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react'
 import type { PdfPage, UploadedPdf } from '../../types/pdf'
 import { peekPageBitmap, renderFullPage, thumbnailBaseRotation } from '../../lib/pdfThumbnailCache'
 
@@ -10,6 +10,7 @@ interface PagePreviewViewerProps {
   pageId: string
   onNavigate: (pageId: string) => void
   onRotate: (pageId: string, delta: number) => void
+  onRename: (pageId: string, label: string) => void
   onDelete: (pageId: string) => void
   onClose: () => void
 }
@@ -34,6 +35,7 @@ export function PagePreviewViewer({
   pageId,
   onNavigate,
   onRotate,
+  onRename,
   onDelete,
   onClose,
 }: PagePreviewViewerProps) {
@@ -45,6 +47,8 @@ export function PagePreviewViewer({
   const [box, setBox] = useState(stageBox)
   // Zoom belongs to one page: moving to another page starts again at 100%.
   const [zoomState, setZoomState] = useState({ pageId, zoom: 1, sharp: 1 })
+  const [editingPageId, setEditingPageId] = useState<string | null>(null)
+  const [draftLabel, setDraftLabel] = useState('')
   const zoom = zoomState.pageId === pageId ? zoomState.zoom : 1
   const sharpZoom = zoomState.pageId === pageId ? zoomState.sharp : 1
   const [isZoomAnimating, setIsZoomAnimating] = useState(false)
@@ -55,6 +59,7 @@ export function PagePreviewViewer({
   const layoutRef = useRef({ box: { width: 0, height: 0 }, aspect: 0.77 })
   const index = pages.findIndex((page) => page.id === pageId)
   const page = pages[index]
+  const isRenaming = editingPageId === pageId
   const sourcePdf = page && pdfs.find((pdf) => pdf.id === page.sourcePdfId)
   const rotation = page?.rotation
   const isLoading = rendered?.key !== pageId
@@ -160,15 +165,36 @@ export function PagePreviewViewer({
 
   const handleDelete = () => {
     if (!page) return
-    const neighbour = nextId ?? previousId
-    if (neighbour) onNavigate(neighbour)
-    else onClose()
     onDelete(page.id)
+  }
+
+  const beginRename = () => {
+    if (!page) return
+    setDraftLabel(page.label || page.sourcePdfName)
+    setEditingPageId(page.id)
+  }
+
+  const finishRename = () => {
+    if (!page) return
+    const label = draftLabel.trim()
+    onRename(page.id, !page.label && label === page.sourcePdfName ? '' : label)
+    setEditingPageId(null)
+  }
+
+  const cancelRename = () => {
+    setDraftLabel(page?.label ?? '')
+    setEditingPageId(null)
   }
 
   useEffect(() => {
     // Capture phase so the grid's own arrow-key reordering never sees these keys.
     const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.target instanceof HTMLInputElement ||
+        (event.target instanceof HTMLElement && event.target.closest('[role="alertdialog"]'))
+      ) {
+        return
+      }
       if (event.key === 'Escape') onClose()
       else if (event.key === 'ArrowLeft') {
         if (previousId) onNavigate(previousId)
@@ -305,12 +331,61 @@ export function PagePreviewViewer({
       className="page-viewer"
       role="dialog"
       aria-modal="true"
-      aria-label={`Page ${page.pageNumber} of ${page.sourcePdfName}, full view`}
+      aria-label={`Page ${page.pageNumber} of ${page.label || page.sourcePdfName}, full view`}
       tabIndex={-1}
     >
       <header className="page-viewer-bar">
         <div className="page-viewer-title">
-          <strong>{page.label || page.sourcePdfName}</strong>
+          <div className="page-viewer-title-name">
+            {isRenaming ? (
+              <>
+                <input
+                  className="page-viewer-title-input"
+                  value={draftLabel}
+                  autoFocus
+                  aria-label={`Page ${page.pageNumber} label`}
+                  onFocus={(event) => event.target.select()}
+                  onChange={(event) => setDraftLabel(event.target.value)}
+                  onBlur={finishRename}
+                  onKeyDown={(event) => {
+                    event.stopPropagation()
+                    if (event.key === 'Enter') finishRename()
+                    if (event.key === 'Escape') cancelRename()
+                  }}
+                />
+                <div className="page-viewer-title-actions">
+                  <button
+                    type="button"
+                    aria-label="Save page label"
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={finishRename}
+                  >
+                    <Check size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Cancel page label edit"
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={cancelRename}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <strong>{page.label || page.sourcePdfName}</strong>
+                <button
+                  type="button"
+                  className="page-viewer-rename-button"
+                  aria-label={`Rename page ${page.pageNumber}`}
+                  onClick={beginRename}
+                >
+                  <Pencil size={13} />
+                </button>
+              </>
+            )}
+          </div>
           <span>
             Page {page.pageNumber} · {index + 1} of {pages.length}
           </span>

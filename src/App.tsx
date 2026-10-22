@@ -30,6 +30,7 @@ function App() {
   const [processingCount, setProcessingCount] = useState(0)
   const [errors, setErrors] = useState<UploadError[]>([])
   const [isExportOpen, setIsExportOpen] = useState(false)
+  const [pendingDeletePageIds, setPendingDeletePageIds] = useState<string[]>([])
   const [inspectedPageId, setInspectedPageId] = useState<string | null>(null)
   const [isInspectorOpen, setIsInspectorOpen] = useState(false)
   const [viewerPageId, setViewerPageId] = useState<string | null>(null)
@@ -84,6 +85,9 @@ function App() {
   const inspectedPdf = inspectedPage
     ? pdfs.find((pdf) => pdf.id === inspectedPage.sourcePdfId)
     : undefined
+  const requestDeletePages = useCallback((pageIds: string[]) => {
+    if (pageIds.length > 0) setPendingDeletePageIds([...pageIds])
+  }, [])
 
   const restoreLocalWorkspace = useCallback(async () => {
     try {
@@ -190,6 +194,20 @@ function App() {
         return
       }
 
+      if (pendingDeletePageIds.length > 0) {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          setPendingDeletePageIds([])
+        }
+        return
+      }
+
+      if (event.key === 'Delete' && selectedPageIds.length > 0) {
+        event.preventDefault()
+        requestDeletePages(selectedPageIds)
+        return
+      }
+
       const commandKey = event.ctrlKey || event.metaKey
       if (!commandKey) return
       const key = event.key.toLowerCase()
@@ -211,7 +229,7 @@ function App() {
 
     window.addEventListener('keydown', handleShortcut)
     return () => window.removeEventListener('keydown', handleShortcut)
-  }, [allPagesSelected, pages, redo, setPageSelection, undo])
+  }, [allPagesSelected, pages, pendingDeletePageIds.length, redo, requestDeletePages, selectedPageIds, setPageSelection, undo])
 
   const handleRejected = useCallback((rejectedFiles: FileRejection[]) => {
     setErrors((current) => [
@@ -483,10 +501,7 @@ function App() {
           <button
             type="button"
             className="page-action-button destructive"
-            onClick={() => {
-              deletePages(selectedPageIds)
-              clearSelection()
-            }}
+            onClick={() => requestDeletePages(selectedPageIds)}
           >
             <Trash2 size={16} />
             <span>Delete</span>
@@ -507,7 +522,8 @@ function App() {
           pageId={viewerPageId}
           onNavigate={setViewerPageId}
           onRotate={(pageId, delta) => rotatePages([pageId], delta)}
-          onDelete={(pageId) => deletePages([pageId])}
+          onRename={renamePage}
+          onDelete={(pageId) => requestDeletePages([pageId])}
           onClose={closeViewer}
         />
       )}
@@ -527,6 +543,56 @@ function App() {
           pdfs={pdfs}
           onClose={() => setIsExportOpen(false)}
         />
+      )}
+      {pendingDeletePageIds.length > 0 && (
+        <div
+          className="delete-confirmation-backdrop"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setPendingDeletePageIds([])
+          }}
+        >
+          <section
+            className="delete-confirmation"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-confirmation-title"
+            aria-describedby="delete-confirmation-message"
+          >
+            <div className="delete-confirmation-icon">
+              <Trash2 size={18} aria-hidden="true" />
+            </div>
+            <div className="delete-confirmation-copy">
+              <h2 id="delete-confirmation-title">
+                Delete {pendingDeletePageIds.length === 1 ? 'page' : 'pages'}?
+              </h2>
+              <p id="delete-confirmation-message">
+                {pendingDeletePageIds.length === 1
+                  ? 'This page will be removed from your workspace.'
+                  : `These ${pendingDeletePageIds.length} pages will be removed from your workspace.`}
+              </p>
+            </div>
+            <div className="delete-confirmation-actions">
+              <button
+                type="button"
+                className="delete-confirmation-cancel"
+                autoFocus
+                onClick={() => setPendingDeletePageIds([])}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="delete-confirmation-submit"
+                onClick={() => {
+                  deletePages(pendingDeletePageIds)
+                  setPendingDeletePageIds([])
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </section>
+        </div>
       )}
     </div>
   )

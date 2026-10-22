@@ -19,7 +19,7 @@ let pendingSignature: string | undefined
 const supportsDragOut = typeof navigator !== 'undefined' && 'userAgentData' in navigator
 
 function signatureOf(pages: PdfPage[]): string {
-  return pages.map((page) => `${page.id}:${page.rotation}`).join('|')
+  return JSON.stringify(pages.map((page) => [page.id, page.rotation, page.label ?? null]))
 }
 
 /** Builds the PDF in advance: a drag can only carry a file that already exists when it starts. */

@@ -115,7 +115,17 @@ function PageCard({
 
   const finishRename = () => {
     // Left untouched, the prefilled default name must not become a custom label.
-    onRename(page.id, !page.label && draftLabel === page.sourcePdfName ? '' : draftLabel)
+    const label = !page.label && draftLabel.trim() === page.sourcePdfName ? '' : draftLabel.trim()
+    onRename(page.id, label)
+    const dragPages = getDragPages(page.id)
+    if (dragPages.length === 1) {
+      prepareDragOut(
+        dragPages.map((dragPage) =>
+          dragPage.id === page.id ? { ...dragPage, label: label || undefined } : dragPage,
+        ),
+        pdfs,
+      )
+    }
     setIsRenaming(false)
   }
 
