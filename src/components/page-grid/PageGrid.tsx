@@ -145,8 +145,13 @@ function GroupCard({
         {isSelected && <span className="page-select-check">✓</span>}
       </button>
       <div className="group-preview-stack">
-        <span className="group-preview-sheet group-preview-sheet-back" />
-        <span className="group-preview-sheet group-preview-sheet-middle" />
+        {Array.from({ length: Math.min(pages.length - 1, 4) }, (_, index) => (
+          <span
+            key={`stack-sheet-${index}`}
+            className={`group-preview-sheet group-preview-sheet-layer-${index + 1}`}
+            aria-hidden="true"
+          />
+        ))}
         <PageThumbnail
           className="group-preview-front"
           sourcePdfId={cover.sourcePdfId}

@@ -1747,7 +1747,11 @@
 
 .group-preview-stack {
   position: relative;
-  height: clamp(170px, var(--page-preview-height, 224px), 448px);
+  perspective: 900px;
+  transform-style: preserve-3d;
+  width: calc(100% - 24px);
+  height: calc(clamp(170px, var(--page-preview-height, 224px), 448px) - 48px);
+  margin: 36px auto 12px;
 }
 
 .group-preview-sheet {
@@ -1757,20 +1761,45 @@
   border-radius: 12px;
   background: #aaa5bb;
   pointer-events: none;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.16);
+  transform-origin: center bottom;
 }
 
-.group-preview-sheet-back {
-  transform: translate(8px, -7px) rotate(4deg);
+.group-preview-sheet-layer-1 {
+  z-index: 1;
+  opacity: 0.68;
+  filter: brightness(0.76);
+  transform: translate3d(8px, -32px, 0) rotateX(5deg) scaleX(0.84);
 }
 
-.group-preview-sheet-middle {
-  transform: translate(4px, -4px) rotate(2deg);
+.group-preview-sheet-layer-2 {
+  z-index: 2;
+  opacity: 0.76;
+  filter: brightness(0.82);
+  transform: translate3d(6px, -24px, 0) rotateX(4deg) scaleX(0.88);
+}
+
+.group-preview-sheet-layer-3 {
+  z-index: 3;
+  opacity: 0.84;
+  filter: brightness(0.88);
+  transform: translate3d(4px, -16px, 0) rotateX(3deg) scaleX(0.92);
+}
+
+.group-preview-sheet-layer-4 {
+  z-index: 4;
+  opacity: 0.92;
+  filter: brightness(0.94);
+  transform: translate3d(2px, -8px, 0) rotateX(2deg) scaleX(0.96);
+}
+
+.group-preview-sheet:nth-child(2n) {
   background: #d0cbd9;
 }
 
 .page-grid.view-grid .group-preview-front {
   position: absolute;
-  z-index: 1;
+  z-index: 5;
   inset: 0;
   width: 100%;
   height: 100%;
@@ -1780,7 +1809,7 @@
 
 .group-count-badge {
   position: absolute;
-  z-index: 2;
+  z-index: 6;
   top: 10px;
   right: 10px;
   display: inline-flex;
