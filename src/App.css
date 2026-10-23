@@ -774,25 +774,9 @@
     scale(var(--min-font-size-inv));
 }
 
-.page-viewer-text-layer span::selection,
-.page-viewer-ocr-layer span::selection {
+.page-viewer-text-layer span::selection {
   background: rgba(92, 126, 255, 0.45);
   color: transparent;
-}
-
-.page-viewer-ocr-layer {
-  z-index: 2;
-  color: transparent;
-  font-family: Arial, sans-serif;
-}
-
-.page-viewer-ocr-layer span {
-  position: absolute;
-  overflow: hidden;
-  color: transparent;
-  cursor: text;
-  white-space: pre;
-  transform-origin: top left;
 }
 
 .page-viewer-spinner,
@@ -864,12 +848,6 @@
   width: 1px;
   height: 24px;
   background: rgba(255, 255, 255, 0.14);
-}
-
-.page-viewer-ocr-status {
-  max-width: min(360px, 100%);
-  color: #c1b3f4;
-  font-size: 11px;
 }
 
 .page-viewer-zoom {
@@ -1142,6 +1120,51 @@
 
 .page-action-button.destructive:hover {
   background: rgba(180, 93, 93, 0.18);
+}
+
+.page-context-menu {
+  position: fixed;
+  z-index: 50;
+  display: grid;
+  width: 220px;
+  gap: 3px;
+  border: 1px solid rgba(199, 191, 242, 0.3);
+  border-radius: 12px;
+  background: rgba(28, 27, 36, 0.97);
+  padding: 6px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(16px);
+}
+
+.page-context-menu button {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #f1ecff;
+  padding: 0 10px;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.page-context-menu button:hover,
+.page-context-menu button:focus-visible {
+  outline: 0;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.page-context-menu button.destructive {
+  color: #ffd8d8;
+}
+
+.page-context-menu button.destructive:hover,
+.page-context-menu button.destructive:focus-visible {
+  background: rgba(180, 93, 93, 0.2);
 }
 
 .delete-confirmation-backdrop {
@@ -1486,7 +1509,6 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  margin-top: auto;
   border: 1px solid rgba(188, 171, 255, 0.4);
   border-radius: 10px;
   background: linear-gradient(135deg, #7e6bd1, #6856b4);
@@ -1496,6 +1518,38 @@
   font-weight: 700;
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(81, 62, 150, 0.28);
+}
+
+.export-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.export-print-button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #e2deed;
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.export-print-button:hover:not(:disabled) {
+  border-color: rgba(198, 184, 255, 0.42);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.export-print-button:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
 }
 
 .export-submit-button:disabled {

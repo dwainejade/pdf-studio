@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   ArrowDownToLine,
   Check,
+  Copy,
   FileStack,
   FileText,
   Info,
@@ -39,6 +40,12 @@ function App() {
   const [isInspectorOpen, setIsInspectorOpen] = useState(false)
   const [viewerPageId, setViewerPageId] = useState<string | null>(null)
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<{
+    pageIds: string[]
+    groupId?: string
+    x: number
+    y: number
+  } | null>(null)
   const [isRenamingActiveGroup, setIsRenamingActiveGroup] = useState(false)
   const [activeGroupNameDraft, setActiveGroupNameDraft] = useState('')
   const [isWorkspaceReady, setIsWorkspaceReady] = useState(false)
@@ -61,6 +68,7 @@ function App() {
   const setPageSelection = usePdfStore((state) => state.setPageSelection)
   const clearSelection = usePdfStore((state) => state.clearSelection)
   const deletePages = usePdfStore((state) => state.deletePages)
+  const duplicatePages = usePdfStore((state) => state.duplicatePages)
   const rotatePages = usePdfStore((state) => state.rotatePages)
   const renamePage = usePdfStore((state) => state.renamePage)
   const groupPages = usePdfStore((state) => state.groupPages)
@@ -359,6 +367,21 @@ function App() {
     selectedPages.every((page) => page.groupId === selectedPages[0].groupId) &&
     selectedPages.length === pages.filter((page) => page.groupId === selectedPages[0].groupId).length
   const canGroupSelection = selectedPages.length >= 2 && !selectedPagesAreOneGroup
+  const contextPages = contextMenu
+    ? pages.filter((page) => contextMenu.pageIds.includes(page.id))
+    : []
+  const contextGroupId = contextMenu?.groupId
+  const contextPagesAreOneGroup =
+    contextPages.length > 0 &&
+    Boolean(contextPages[0].groupId) &&
+    contextPages.every((page) => page.groupId === contextPages[0].groupId) &&
+    contextPages.length === pages.filter((page) => page.groupId === contextPages[0].groupId).length
+  const contextIsWholeGroup =
+    Boolean(contextGroupId) &&
+    contextPages.length === pages.filter((page) => page.groupId === contextGroupId).length &&
+    contextPages.every((page) => page.groupId === contextGroupId)
+  const canGroupContext = contextPages.length >= 2 && !contextPagesAreOneGroup
+  const canUngroupContext = contextPages.some((page) => page.groupId)
   const closeViewer = useCallback(() => setViewerPageId(null), [])
   const openGroup = (groupId: string) => {
     clearSelection()
@@ -388,6 +411,33 @@ function App() {
     if (activeGroupPages.length <= 2) setActiveGroupId(null)
     ungroupPages([pageId])
   }
+  const openContextMenu = (
+    pageIds: string[],
+    groupId: string | undefined,
+    position: { x: number; y: number },
+  ) => setContextMenu({ pageIds, groupId, ...position })
+  const duplicateSelection = (pageIds: string[]) => {
+    const duplicatedGroupId = duplicatePages(pageIds)
+    if (activeGroupId && duplicatedGroupId) setActiveGroupId(duplicatedGroupId)
+  }
+
+  useEffect(() => {
+    if (!contextMenu) return
+    const dismissOnKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setContextMenu(null)
+    }
+    const dismissOutsideMenu = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest('.page-context-menu')) {
+        setContextMenu(null)
+      }
+    }
+    window.addEventListener('keydown', dismissOnKeyDown)
+    window.addEventListener('pointerdown', dismissOutsideMenu)
+    return () => {
+      window.removeEventListener('keydown', dismissOnKeyDown)
+      window.removeEventListener('pointerdown', dismissOutsideMenu)
+    }
+  }, [contextMenu])
 
   return (
     <div
@@ -540,7 +590,6 @@ function App() {
             )}
           </section>
         )}
-
         {errors.length > 0 && (
           <section className="error-list" aria-label="Upload errors" aria-live="polite">
             {errors.map((error) => (
@@ -635,6 +684,7 @@ function App() {
               onInspectPage={setInspectedPageId}
               onViewPage={setViewerPageId}
               onOpenGroup={openGroup}
+              onOpenContextMenu={openContextMenu}
               expandedGroupId={activeGroup?.id}
               groupCanvasName={activeGroup?.name}
               onUngroupPage={activeGroup ? ungroupPageFromCanvas : undefined}
@@ -645,16 +695,17 @@ function App() {
 
       {hasSelection && (
         <div className="page-action-toolbar" aria-label="Page actions">
-          <button
-            type="button"
-            className="page-action-button"
-            disabled={!canGroupSelection}
-            title={canGroupSelection ? 'Group selected pages (Shift+G)' : 'Select two or more pages to create a group'}
-            onClick={() => groupPages(selectedPageIds)}
-          >
-            <FileStack size={16} />
-            <span>Group</span>
-          </button>
+          {canGroupSelection && (
+            <button
+              type="button"
+              className="page-action-button"
+              title="Group selected pages (Shift+G)"
+              onClick={() => groupPages(selectedPageIds)}
+            >
+              <FileStack size={16} />
+              <span>Group</span>
+            </button>
+          )}
           {selectedPages.some((page) => page.groupId) && (
             <button
               type="button"
@@ -665,6 +716,14 @@ function App() {
               <span>Ungroup</span>
             </button>
           )}
+          <button
+            type="button"
+            className="page-action-button"
+            onClick={() => duplicateSelection(selectedPageIds)}
+          >
+            <Copy size={16} />
+            <span>Duplicate</span>
+          </button>
           <button
             type="button"
             className="page-action-button"
@@ -680,6 +739,102 @@ function App() {
           >
             <Trash2 size={16} />
             <span>Delete</span>
+          </button>
+        </div>
+      )}
+      {contextMenu && (
+        <div
+          className="page-context-menu"
+          role="menu"
+          aria-label="Page actions"
+          style={{
+            left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 228)),
+            top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 300)),
+          }}
+        >
+          {contextMenu.groupId && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                if (contextMenu.groupId) openGroup(contextMenu.groupId)
+                setContextMenu(null)
+              }}
+            >
+              <Layers size={15} />
+              Open group
+            </button>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              duplicateSelection(contextMenu.pageIds)
+              setContextMenu(null)
+            }}
+          >
+            <Copy size={15} />
+            Duplicate {contextIsWholeGroup ? 'group' : contextMenu.pageIds.length === 1 ? 'page' : 'pages'}
+          </button>
+          {canGroupContext && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                groupPages(contextMenu.pageIds)
+                setContextMenu(null)
+              }}
+            >
+              <FileStack size={15} />
+              Group
+            </button>
+          )}
+          {canUngroupContext && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                ungroupPages(contextMenu.pageIds)
+                setContextMenu(null)
+              }}
+            >
+              <Layers size={15} />
+              Ungroup
+            </button>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setViewerPageId(contextMenu.pageIds[0])
+              setContextMenu(null)
+            }}
+          >
+            <ZoomIn size={15} />
+            Preview
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              rotatePages(contextMenu.pageIds, 90)
+              setContextMenu(null)
+            }}
+          >
+            <RotateCw size={15} />
+            Rotate 90°
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="destructive"
+            onClick={() => {
+              requestDeletePages(contextMenu.pageIds)
+              setContextMenu(null)
+            }}
+          >
+            <Trash2 size={15} />
+            Delete
           </button>
         </div>
       )}

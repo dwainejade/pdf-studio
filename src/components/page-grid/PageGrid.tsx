@@ -13,7 +13,13 @@ import {
 import { Check, FileText, Layers, Minus, Pencil, X } from 'lucide-react'
 import type { PageGroup, PdfPage, UploadedPdf } from '../../types/pdf'
 import { PageThumbnail } from './PageThumbnail'
-import { prepareDragOut, readyDragOutPayload } from '../../lib/export/dragOut'
+import {
+  prepareDragOut,
+  prepareDragOutFiles,
+  readyDragOutFilesPayload,
+  readyDragOutPayload,
+  type DragOutFileRequest,
+} from '../../lib/export/dragOut'
 
 const REARRANGE_ANIMATION_MS = 220
 
@@ -35,6 +41,11 @@ interface PageGridProps {
   onInspectPage: (pageId: string) => void
   onViewPage: (pageId: string) => void
   onOpenGroup: (groupId: string) => void
+  onOpenContextMenu: (
+    pageIds: string[],
+    groupId: string | undefined,
+    position: { x: number; y: number },
+  ) => void
   expandedGroupId?: string
   groupCanvasName?: string
   onUngroupPage?: (pageId: string) => void
@@ -43,8 +54,7 @@ interface PageGridProps {
 interface GroupCardProps {
   group: PageGroup
   pages: PdfPage[]
-  dragPages: PdfPage[]
-  dragFilename: string | undefined
+  dragOutFiles: DragOutFileRequest[]
   sourcePdf: UploadedPdf
   pdfs: UploadedPdf[]
   isSelected: boolean
@@ -62,8 +72,7 @@ interface GroupCardProps {
 function GroupCard({
   group,
   pages,
-  dragPages,
-  dragFilename,
+  dragOutFiles,
   sourcePdf,
   pdfs,
   isSelected,
@@ -107,13 +116,14 @@ function GroupCard({
       draggable
       data-page-id={cover.id}
       data-page-ids={pages.map((page) => page.id).join(' ')}
+      data-group-id={group.id}
       aria-label={`${group.name}, ${pageDescription}${isSelected ? ', selected' : ''}`}
-      onPointerEnter={() => prepareDragOut(dragPages, pdfs, dragFilename)}
-      onPointerDown={() => prepareDragOut(dragPages, pdfs, dragFilename)}
+      onPointerEnter={() => prepareDragOutFiles(dragOutFiles, pdfs)}
+      onPointerDown={() => prepareDragOutFiles(dragOutFiles, pdfs)}
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = 'copyMove'
         event.dataTransfer.setData('text/plain', cover.id)
-        const payload = readyDragOutPayload(dragPages, dragFilename)
+        const payload = readyDragOutFilesPayload(dragOutFiles)
         if (payload) event.dataTransfer.setData('DownloadURL', payload)
         onDragStart(cover.id)
       }}
@@ -479,6 +489,7 @@ export function PageGrid({
   onInspectPage,
   onViewPage,
   onOpenGroup,
+  onOpenContextMenu,
   expandedGroupId,
   groupCanvasName,
   onUngroupPage,
@@ -537,6 +548,35 @@ export function PageGrid({
     dragPages.every((page) => pages.some((item) => item.id === page.id))
       ? groupCanvasName
       : undefined
+  const getGroupDragFiles = (dragPages: PdfPage[], group: PageGroup): DragOutFileRequest[] => {
+    const includesOtherPages = dragPages.some((page) => page.groupId !== group.id)
+    if (!includesOtherPages) return [{ pages: dragPages, filename: group.name }]
+
+    const selectedIds = new Set(dragPages.map((page) => page.id))
+    const emittedGroups = new Set<string>()
+    const files: DragOutFileRequest[] = []
+    for (const page of dragPages) {
+      if (!page.groupId) {
+        files.push({ pages: [page] })
+        continue
+      }
+      const selectedGroup = groups.find((item) => item.id === page.groupId)
+      const members = allPages.filter((item) => item.groupId === page.groupId)
+      if (
+        selectedGroup &&
+        members.length > 0 &&
+        members.every((member) => selectedIds.has(member.id))
+      ) {
+        if (!emittedGroups.has(selectedGroup.id)) {
+          emittedGroups.add(selectedGroup.id)
+          files.push({ pages: members, filename: selectedGroup.name })
+        }
+        continue
+      }
+      files.push({ pages: [page] })
+    }
+    return files
+  }
   const selectionAnchorId = useRef<string | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
   const marqueeStartRef = useRef<{ x: number; y: number; additive: boolean } | null>(null)
@@ -640,6 +680,24 @@ export function PageGrid({
   const handleGridPointerCancel = () => {
     marqueeStartRef.current = null
     setMarquee(null)
+  }
+
+  const handleGridContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target
+    if (!(target instanceof HTMLElement)) return
+    const card = target.closest<HTMLElement>('[data-page-ids]')
+    if (!card) return
+    event.preventDefault()
+
+    const pageIds = card.dataset.pageIds?.split(' ').filter(Boolean) ?? []
+    if (pageIds.length === 0) return
+    const selectionIncludesCard = pageIds.every((pageId) => selectedSet.has(pageId))
+    const contextPageIds = selectionIncludesCard ? selectedPageIds : pageIds
+    if (!selectionIncludesCard) onSetSelection(pageIds)
+    onOpenContextMenu(contextPageIds, card.dataset.groupId, {
+      x: event.clientX,
+      y: event.clientY,
+    })
   }
 
   const updateHoverSlot = (slot: string | null) => {
@@ -760,6 +818,7 @@ export function PageGrid({
             onPointerCancel={handleGridPointerCancel}
             onDragOver={handleGridDragOver}
             onDrop={handleGridDrop}
+            onContextMenu={handleGridContextMenu}
           >
             <div ref={indicatorRef} className="drop-indicator" aria-hidden="true" />
             {marquee && (
@@ -786,13 +845,16 @@ export function PageGrid({
                   isGroupSelected && !isOnlyGroupSelected
                     ? allPages.filter((page) => selectedSet.has(page.id))
                     : item.pages
+                const dragOutFiles =
+                  isGroupSelected && !isOnlyGroupSelected
+                    ? getGroupDragFiles(dragPages, item.group)
+                    : [{ pages: item.pages, filename: item.group.name }]
                 return (
                   <GroupCard
                     key={`group-${item.group.id}`}
                     group={item.group}
                     pages={item.pages}
-                    dragPages={dragPages}
-                    dragFilename={isGroupSelected && !isOnlyGroupSelected ? undefined : item.group.name}
+                    dragOutFiles={dragOutFiles}
                     sourcePdf={sourcePdf}
                     pdfs={pdfs}
                     isSelected={isGroupSelected}

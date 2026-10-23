@@ -1,11 +1,11 @@
 import { PDFDocument } from 'pdf-lib'
-import type { PdfPage, UploadedPdf } from '../../types/pdf'
+import type { PageGroup, PdfPage, UploadedPdf } from '../../types/pdf'
 import {
   applyPageRotation,
   findSourcePdf,
   loadSourceDocument,
 } from './common'
-import { individualFilename } from './filenames'
+import { individualFilename, mergedFilename } from './filenames'
 
 export interface IndividualPdfExport {
   filename: string
@@ -24,21 +24,76 @@ export async function createIndividualPdfs(
   const exports: IndividualPdfExport[] = []
   const filenames = new Set<string>()
   for (const page of pagesInGridOrder) {
+    const filename = individualFilename(page)
+    ensureUniqueFilename(filename, filenames)
+    exports.push(await createPdfExport([page], filename, pdfs, documentCache))
+  }
+  return exports
+}
+
+export async function createGroupPdfs(
+  pagesInGridOrder: PdfPage[],
+  pdfs: UploadedPdf[],
+  groups: PageGroup[],
+): Promise<IndividualPdfExport[]> {
+  if (pagesInGridOrder.length === 0) {
+    throw new Error('Select at least one page to export.')
+  }
+
+  const groupsById = new Map(groups.map((group) => [group.id, group]))
+  const groupedPages = new Map<string, PdfPage[]>()
+  const exportUnits: Array<{ pages: PdfPage[]; filename: string }> = []
+  const filenames = new Set<string>()
+
+  for (const page of pagesInGridOrder) {
+    const group = page.groupId ? groupsById.get(page.groupId) : undefined
+    if (!group) {
+      const filename = individualFilename(page)
+      ensureUniqueFilename(filename, filenames)
+      exportUnits.push({ pages: [page], filename })
+      continue
+    }
+
+    let members = groupedPages.get(group.id)
+    if (!members) {
+      members = []
+      groupedPages.set(group.id, members)
+      const filename = mergedFilename(group.name)
+      ensureUniqueFilename(filename, filenames)
+      exportUnits.push({ pages: members, filename })
+    }
+    members.push(page)
+  }
+
+  const documentCache = new Map<string, Promise<PDFDocument>>()
+  const exports: IndividualPdfExport[] = []
+  for (const { pages, filename } of exportUnits) {
+    exports.push(await createPdfExport(pages, filename, pdfs, documentCache))
+  }
+  return exports
+}
+
+async function createPdfExport(
+  pages: PdfPage[],
+  filename: string,
+  pdfs: UploadedPdf[],
+  documentCache: Map<string, Promise<PDFDocument>>,
+): Promise<IndividualPdfExport> {
+  const output = await PDFDocument.create()
+  for (const page of pages) {
     const source = findSourcePdf(page, pdfs)
     const sourceDocument = await loadSourceDocument(source, documentCache)
-    const output = await PDFDocument.create()
     const [copiedPage] = await output.copyPages(sourceDocument, [page.pageNumber - 1])
     applyPageRotation(copiedPage, page.rotation)
     output.addPage(copiedPage)
-    const filename = individualFilename(page)
-    if (filenames.has(filename.toLocaleLowerCase())) {
-      throw new Error(`More than one selected page uses "${filename}". Rename pages so each export filename is unique.`)
-    }
-    filenames.add(filename.toLocaleLowerCase())
-    exports.push({
-      filename,
-      bytes: await output.save(),
-    })
   }
-  return exports
+  return { filename, bytes: await output.save() }
+}
+
+function ensureUniqueFilename(filename: string, filenames: Set<string>): void {
+  const normalized = filename.toLocaleLowerCase()
+  if (filenames.has(normalized)) {
+    throw new Error(`More than one selected export uses "${filename}". Rename pages or groups so each export filename is unique.`)
+  }
+  filenames.add(normalized)
 }

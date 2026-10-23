@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { FolderOpen, X } from 'lucide-react'
+import { FolderOpen, Printer, X } from 'lucide-react'
 import type { PageGroup, PdfPage, UploadedPdf } from '../../types/pdf'
 import {
   canChooseExportDirectory,
@@ -8,6 +8,7 @@ import {
   type ExportDirectoryHandle,
 } from '../../lib/export/filesystem'
 import { mergedFilename } from '../../lib/export/filenames'
+import { printPdfPages } from '../../lib/export/printing'
 
 interface ExportDrawerProps {
   pages: PdfPage[]
@@ -16,7 +17,7 @@ interface ExportDrawerProps {
   onClose: () => void
 }
 
-type ExportMode = 'merged' | 'individual'
+type ExportMode = 'merged' | 'groups' | 'individual'
 
 export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps) {
   const [mode, setMode] = useState<ExportMode>('merged')
@@ -31,7 +32,9 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
   const [filename, setFilename] = useState(groupName ?? 'Merged_Document')
   const [directory, setDirectory] = useState<ExportDirectoryHandle>()
   const [error, setError] = useState<string>()
+  const [printError, setPrintError] = useState<string>()
   const [isExporting, setIsExporting] = useState(false)
+  const [isPrinting, setIsPrinting] = useState(false)
   const selectedPages = useMemo(() => new Set(pages.map((page) => page.id)), [pages])
   const canPickFolder = canChooseExportDirectory()
 
@@ -53,6 +56,12 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
         const { createMergedPdf } = await import('../../lib/export/merged')
         const bytes = await createMergedPdf(pages, pdfs)
         await saveExportFile(bytes, mergedFilename(filename), directory)
+      } else if (mode === 'groups') {
+        const { createGroupPdfs } = await import('../../lib/export/individual')
+        const files = await createGroupPdfs(pages, pdfs, groups)
+        for (const file of files) {
+          await saveExportFile(file.bytes, file.filename, directory)
+        }
       } else {
         const { createIndividualPdfs } = await import('../../lib/export/individual')
         const files = await createIndividualPdfs(pages, pdfs)
@@ -64,6 +73,22 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
       setError(cause instanceof Error ? cause.message : 'The selected pages could not be exported.')
     } finally {
       setIsExporting(false)
+    }
+  }
+
+  const printSelectedPages = async () => {
+    setPrintError(undefined)
+    setIsPrinting(true)
+    try {
+      await printPdfPages(pages, pdfs)
+    } catch (cause) {
+      setPrintError(
+        cause instanceof Error
+          ? cause.message
+          : 'The selected pages could not be prepared for printing.',
+      )
+    } finally {
+      setIsPrinting(false)
     }
   }
 
@@ -105,6 +130,20 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
             <span>
               <strong>Merge into One PDF</strong>
               <small>Keep the current page order</small>
+            </span>
+          </label>
+          <label className={`export-mode-option${mode === 'groups' ? ' is-active' : ''}`}>
+            <input
+              type="radio"
+              name="export-mode"
+              value="groups"
+              checked={mode === 'groups'}
+              onChange={() => setMode('groups')}
+            />
+            <span className="export-radio" />
+            <span>
+              <strong>Separate PDFs by Group</strong>
+              <small>One PDF per group; ungrouped pages stay separate</small>
             </span>
           </label>
           <label className={`export-mode-option${mode === 'individual' ? ' is-active' : ''}`}>
@@ -152,18 +191,32 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
         </div>
 
         {error && <p className="export-error" role="alert">{error}</p>}
-        <button
-          className="export-submit-button"
-          type="button"
-          disabled={pages.length === 0 || isExporting || (mode === 'merged' && !filename.trim())}
-          onClick={() => void exportFiles()}
-        >
-          {isExporting
-            ? 'Preparing export…'
-            : mode === 'merged'
-              ? 'Export Merged PDF'
-              : 'Export Individual PDFs'}
-        </button>
+        {printError && <p className="export-error" role="alert">{printError}</p>}
+        <div className="export-actions">
+          <button
+            className="export-print-button"
+            type="button"
+            disabled={pages.length === 0 || isPrinting}
+            onClick={() => void printSelectedPages()}
+          >
+            <Printer size={15} />
+            {isPrinting ? 'Preparing print…' : 'Print Selected Pages'}
+          </button>
+          <button
+            className="export-submit-button"
+            type="button"
+            disabled={pages.length === 0 || isExporting || (mode === 'merged' && !filename.trim())}
+            onClick={() => void exportFiles()}
+          >
+            {isExporting
+              ? 'Preparing export…'
+              : mode === 'merged'
+                ? 'Export Merged PDF'
+                : mode === 'groups'
+                  ? 'Export Group PDFs'
+                  : 'Export Individual PDFs'}
+          </button>
+        </div>
       </aside>
     </div>
   )
