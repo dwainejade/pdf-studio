@@ -487,7 +487,7 @@
 .page-preview {
   position: relative;
   display: grid;
-  height: clamp(170px, var(--page-preview-height, 224px), 448px);
+  height: max(170px, var(--page-preview-height, 224px));
   padding: 0;
   place-items: center;
   background: #e8e6e8;
@@ -1818,7 +1818,7 @@
   perspective: 900px;
   transform-style: preserve-3d;
   width: calc(100% - 24px);
-  height: calc(clamp(170px, var(--page-preview-height, 224px), 448px) - 48px);
+  height: calc(max(170px, var(--page-preview-height, 224px)) - 48px);
   margin: 36px auto 12px;
 }
 
