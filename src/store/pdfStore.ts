@@ -21,6 +21,7 @@ interface PdfStore extends StoreSnapshot {
   setPageSelection: (pageIds: string[]) => void
   clearSelection: () => void
   deletePages: (pageIds: string[]) => void
+  duplicatePages: (pageIds: string[]) => string | undefined
   rotatePages: (pageIds: string[], delta: number) => void
   renamePage: (pageId: string, label: string) => void
   groupPages: (pageIds: string[]) => void
@@ -33,6 +34,17 @@ interface PdfStore extends StoreSnapshot {
 function normalizeRotation(rotation: number): number {
   const wrapped = rotation % 360
   return wrapped < 0 ? wrapped + 360 : wrapped
+}
+
+function makeCopyName(name: string, usedNames: Set<string>): string {
+  let copyName = `${name} (Copy)`
+  let copyNumber = 2
+  while (usedNames.has(copyName.toLocaleLowerCase())) {
+    copyName = `${name} (Copy ${copyNumber})`
+    copyNumber += 1
+  }
+  usedNames.add(copyName.toLocaleLowerCase())
+  return copyName
 }
 
 function snapshot(state: StoreSnapshot): StoreSnapshot {
@@ -155,6 +167,52 @@ export const usePdfStore = create<PdfStore>((set, get) => {
         selectedPageIds: current.selectedPageIds.filter((id) => !idsToDelete.has(id)),
       })
     },
+    duplicatePages: (pageIds) => {
+      const current = get()
+      const idsToDuplicate = new Set(pageIds)
+      const pagesToDuplicate = current.pages.filter((page) => idsToDuplicate.has(page.id))
+      if (pagesToDuplicate.length === 0) return undefined
+
+      const usedGroupNames = new Set(current.groups.map((group) => group.name.toLocaleLowerCase()))
+      const groupCopies = new Map<string, PageGroup>()
+      for (const group of current.groups) {
+        const members = current.pages.filter((page) => page.groupId === group.id)
+        if (members.length < 2 || !members.every((page) => idsToDuplicate.has(page.id))) continue
+        groupCopies.set(group.id, {
+          id: crypto.randomUUID(),
+          name: makeCopyName(group.name, usedGroupNames),
+        })
+      }
+
+      const usedPageLabels = new Set(
+        current.pages.map((page) =>
+          (page.label?.trim() || `${page.sourcePdfName.replace(/\.pdf$/i, '')}_Page_${page.pageNumber}`)
+            .replace(/\.pdf$/i, '')
+            .toLocaleLowerCase(),
+        ),
+      )
+      const duplicatedPages = pagesToDuplicate.map((page) => {
+        const baseLabel =
+          page.label?.trim().replace(/\.pdf$/i, '') ||
+          `${page.sourcePdfName.replace(/\.pdf$/i, '')}_Page_${page.pageNumber}`
+        const copy: PdfPage = {
+          ...page,
+          id: crypto.randomUUID(),
+          label: makeCopyName(baseLabel, usedPageLabels),
+        }
+        const copiedGroup = page.groupId ? groupCopies.get(page.groupId) : undefined
+        if (copiedGroup) copy.groupId = copiedGroup.id
+        return copy
+      })
+      const groups = [...current.groups, ...groupCopies.values()]
+      commit({
+        ...snapshot(current),
+        pages: [...current.pages, ...duplicatedPages],
+        groups,
+        selectedPageIds: duplicatedPages.map((page) => page.id),
+      })
+      return groupCopies.values().next().value?.id
+    },
     rotatePages: (pageIds, delta) => {
       const current = get()
       const idsToRotate = new Set(pageIds)
@@ -192,13 +250,28 @@ export const usePdfStore = create<PdfStore>((set, get) => {
 
       const groupNumber = current.nextGroupNumber + 1
       const id = crypto.randomUUID()
-      const groups = current.groups.filter(
-        (group) => !groupedPages.some((page) => page.groupId === group.id),
-      )
-      groups.push({ id, name: `Group ${groupNumber}` })
-      const pages = current.pages.map((page) =>
+      let pages = current.pages.map((page) =>
         idsToGroup.has(page.id) ? { ...page, groupId: id } : page,
       )
+      const memberCounts = new Map<string, number>()
+      for (const page of pages) {
+        if (page.groupId) memberCounts.set(page.groupId, (memberCounts.get(page.groupId) ?? 0) + 1)
+      }
+      const dissolvedGroupIds = new Set(
+        [...memberCounts]
+          .filter(([groupId, count]) => groupId !== id && count < 2)
+          .map(([groupId]) => groupId),
+      )
+      if (dissolvedGroupIds.size > 0) {
+        pages = pages.map((page) => {
+          if (!page.groupId || !dissolvedGroupIds.has(page.groupId)) return page
+          const { groupId: _groupId, ...ungroupedPage } = page
+          return ungroupedPage
+        })
+      }
+      const remainingGroupIds = new Set(pages.map((page) => page.groupId).filter(Boolean))
+      const groups = current.groups.filter((group) => remainingGroupIds.has(group.id))
+      groups.push({ id, name: `Group ${groupNumber}` })
       commit({ ...snapshot(current), pages, groups, nextGroupNumber: groupNumber })
     },
     renameGroup: (groupId, name) => {
