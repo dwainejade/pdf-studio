@@ -24,7 +24,9 @@ import { PageGrid } from './components/page-grid/PageGrid'
 import { DocumentInspector } from './components/page-grid/DocumentInspector'
 import { PagePreviewViewer } from './components/page-grid/PagePreviewViewer'
 import { ExportDrawer } from './components/export/ExportDrawer'
+import { ImageImportDialog } from './components/uploader/ImageImportDialog'
 import { loadPdfPages } from './lib/pdfLoader'
+import { loadImagePage, type ImagePageOrientation } from './lib/imagePdfLoader'
 import { loadWorkspace, savePdfFile, saveWorkspace } from './lib/workspaceDatabase'
 import { usePdfStore } from './store/pdfStore'
 import { useViewPreferences } from './store/viewPreferences'
@@ -33,6 +35,9 @@ import './App.css'
 
 function App() {
   const [processingCount, setProcessingCount] = useState(0)
+  const [pendingImageFiles, setPendingImageFiles] = useState<File[]>([])
+  const [imagePageOrientation, setImagePageOrientation] =
+    useState<ImagePageOrientation>('auto')
   const [errors, setErrors] = useState<UploadError[]>([])
   const [isExportOpen, setIsExportOpen] = useState(false)
   const [pendingDeletePageIds, setPendingDeletePageIds] = useState<string[]>([])
@@ -398,17 +403,25 @@ function App() {
         id: crypto.randomUUID(),
         fileName: rejection.file.name,
         message: rejection.errors.some((error) => error.code === 'file-invalid-type')
-          ? 'Only PDF files are supported. Choose a file ending in .pdf.'
+          ? 'Only PDF, JPEG, and PNG files are supported.'
           : rejection.errors.map((error) => error.message).join(' '),
       })),
     ])
   }, [])
 
   const handleFiles = useCallback(async (files: File[]) => {
-    setProcessingCount((count) => count + files.length)
+    const imageFiles = files.filter((file) =>
+      file.type.startsWith('image/') || /\.(jpe?g|png)$/i.test(file.name),
+    )
+    const pdfFiles = files.filter((file) => !imageFiles.includes(file))
+    if (imageFiles.length > 0) {
+      setPendingImageFiles((current) => [...current, ...imageFiles])
+    }
+    if (pdfFiles.length === 0) return
+    setProcessingCount((count) => count + pdfFiles.length)
 
     await Promise.all(
-      files.map(async (file) => {
+      pdfFiles.map(async (file) => {
         const id = crypto.randomUUID()
         const importedAt = new Date().toISOString()
         try {
@@ -420,6 +433,7 @@ function App() {
             importedAt,
             totalPages: loadedPdf.totalPages,
             metadata: loadedPdf.metadata,
+            sourceType: 'pdf' as const,
           }
           await savePdfFile(uploadedPdf)
           addPdf(uploadedPdf, loadedPdf.pages)
@@ -442,6 +456,35 @@ function App() {
     )
   }, [addPdf])
 
+  const importImages = useCallback(async () => {
+    const files = pendingImageFiles
+    setPendingImageFiles([])
+    setProcessingCount((count) => count + files.length)
+    await Promise.all(
+      files.map(async (file) => {
+        try {
+          const { source, page } = await loadImagePage(file, imagePageOrientation)
+          await savePdfFile(source)
+          addPdf(source, [page])
+        } catch (error) {
+          setErrors((current) => [
+            ...current,
+            {
+              id: crypto.randomUUID(),
+              fileName: file.name,
+              message:
+                error instanceof Error
+                  ? error.message
+                  : 'This image could not be converted to a PDF page.',
+            },
+          ])
+        } finally {
+          setProcessingCount((count) => count - 1)
+        }
+      }),
+    )
+  }, [addPdf, imagePageOrientation, pendingImageFiles])
+
   const dismissError = (id: string) => {
     setErrors((current) => current.filter((error) => error.id !== id))
   }
@@ -455,7 +498,11 @@ function App() {
   )
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
-    accept: { 'application/pdf': ['.pdf'] },
+    accept: {
+      'application/pdf': ['.pdf'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+    },
     noClick: true,
     noKeyboard: true,
     disabled: !isWorkspaceReady,
@@ -544,7 +591,7 @@ function App() {
     <div
       {...getRootProps({
         className: `app-shell${isDragActive ? ' is-dragging' : ''}${activeGroup ? ' is-group-canvas' : ''}`,
-        'aria-label': 'PDF Studio workspace. Drop PDFs anywhere to add them.',
+        'aria-label': 'PDF Studio workspace. Drop PDFs or images anywhere to add them.',
       })}
     >
       <input {...getInputProps({ className: 'workspace-file-input' })} />
@@ -566,7 +613,7 @@ function App() {
                 <span className="toolbar-file-status">
                   <span className="status-dot" />
                   {pages.length > 0
-                    ? `${pdfs.length} ${pdfs.length === 1 ? 'PDF' : 'PDFs'} · ${pages.length} ${pages.length === 1 ? 'page' : 'pages'}`
+                    ? `${pdfs.length} ${pdfs.length === 1 ? 'source file' : 'source files'} · ${pages.length} ${pages.length === 1 ? 'page' : 'pages'}`
                     : 'Local workspace'}
                 </span>
               </>
@@ -591,7 +638,7 @@ function App() {
               <span className="workspace-saved-status">Saved on this device</span>
             )}
             {processingCount > 0 && (
-              <span className="canvas-processing">Processing PDFs…</span>
+              <span className="canvas-processing">Processing files…</span>
             )}
             {selectedPageIds.length > 0 && (
               <span className="selection-count">{selectedPageIds.length} Selected</span>
@@ -605,7 +652,7 @@ function App() {
               onClick={open}
             >
               <FileText size={15} />
-              Add PDFs
+              Add PDFs or Images
             </button>
             <div className="toolbar-search">
               <Search size={15} aria-hidden="true" />
@@ -715,7 +762,7 @@ function App() {
 
         {!activeGroup && pages.length === 0 && processingCount === 0 ? (
           <div className="canvas-empty-hint">
-            <span>Drop PDFs anywhere to get started</span>
+            <span>Drop PDFs or images anywhere to get started</span>
           </div>
         ) : (
           <>
@@ -943,6 +990,12 @@ function App() {
         <DocumentInspector
           page={inspectedPage}
           pdf={inspectedPdf}
+          onSetImageOrientation={(pageId, orientation) => {
+            const page = pages.find((item) => item.id === pageId)
+            if (page && (page.width > page.height) !== (orientation === 'landscape')) {
+              rotatePages([pageId], 90)
+            }
+          }}
           onClose={() => setIsInspectorOpen(false)}
         />
       )}
@@ -963,10 +1016,19 @@ function App() {
         <div className="drop-overlay" aria-live="polite">
           <div className="drop-overlay-card">
             <FileText size={30} />
-            <strong>Drop PDFs to add pages</strong>
+            <strong>Drop PDFs or images to add pages</strong>
             <span>Files are processed privately on this device</span>
           </div>
         </div>
+      )}
+      {pendingImageFiles.length > 0 && (
+        <ImageImportDialog
+          files={pendingImageFiles}
+          orientation={imagePageOrientation}
+          onOrientationChange={setImagePageOrientation}
+          onImport={() => void importImages()}
+          onCancel={() => setPendingImageFiles([])}
+        />
       )}
       {isExportOpen && (
         <ExportDrawer

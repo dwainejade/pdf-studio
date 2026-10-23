@@ -21,6 +21,6 @@ export function individualFilename(page: PdfPage): string {
   if (label) {
     return `${normalizePdfFilename(label.replace(/\.pdf$/i, ''))}.pdf`
   }
-  const sourceName = page.sourcePdfName.replace(/\.pdf$/i, '')
+  const sourceName = page.sourcePdfName.replace(/\.[^.]+$/, '')
   return normalizePdfFilename(`${sourceName}_Page_${page.pageNumber}.pdf`)
 }

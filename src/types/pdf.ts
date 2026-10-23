@@ -5,6 +5,8 @@ export interface UploadedPdf {
   importedAt: string
   totalPages: number
   metadata: PdfMetadata
+  sourceType?: 'pdf' | 'image'
+  sourceSize?: number
 }
 
 export interface PdfMetadata {

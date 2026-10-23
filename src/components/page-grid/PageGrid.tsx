@@ -811,7 +811,7 @@ export function PageGrid({
               '--page-card-min-width': `${174 * thumbnailSize / 100}px`,
               '--page-preview-height': `${224 * thumbnailSize / 100}px`,
             } as CSSProperties}
-            aria-label="PDF pages"
+            aria-label="Document pages"
             onPointerDown={handleGridPointerDown}
             onPointerMove={handleGridPointerMove}
             onPointerUp={handleGridPointerUp}
@@ -912,7 +912,7 @@ export function PageGrid({
       <div className="empty-state" role="status">
         <span className="loading-spinner" />
         <strong>Preparing your pages</strong>
-        <span>PDFs are processed locally in your browser.</span>
+        <span>PDFs and images are processed locally in your browser.</span>
       </div>
     )
   }
@@ -930,7 +930,7 @@ export function PageGrid({
       ) : (
         <>
           <strong>A little space to get started</strong>
-          <span>Add one or more PDFs above to see every page at a glance.</span>
+          <span>Add PDFs or images above to see every page at a glance.</span>
         </>
       )}
     </div>

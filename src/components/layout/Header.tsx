@@ -28,7 +28,7 @@ export function Header({ pageCount, pdfCount, onAddFiles }: HeaderProps) {
         <span className="status-dot" />
       </div>
       <button className="header-add-button" type="button" onClick={onAddFiles}>
-        Add PDFs
+        Add PDFs or Images
       </button>
     </header>
   )

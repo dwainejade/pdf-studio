@@ -4,6 +4,7 @@ import type { PdfPage, UploadedPdf } from '../../types/pdf'
 interface DocumentInspectorProps {
   page?: PdfPage
   pdf?: UploadedPdf
+  onSetImageOrientation: (pageId: string, orientation: 'portrait' | 'landscape') => void
   onClose: () => void
 }
 
@@ -22,7 +23,7 @@ function MetadataRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-export function DocumentInspector({ page, pdf, onClose }: DocumentInspectorProps) {
+export function DocumentInspector({ page, pdf, onSetImageOrientation, onClose }: DocumentInspectorProps) {
   const closeButton = (
     <button type="button" aria-label="Close metadata panel" onClick={onClose}>
       <X size={17} />
@@ -58,7 +59,8 @@ export function DocumentInspector({ page, pdf, onClose }: DocumentInspectorProps
         <h3>Document information</h3>
         <dl>
           <MetadataRow label="Source file" value={pdf.name} />
-          <MetadataRow label="File size" value={formatFileSize(pdf.file.size)} />
+          <MetadataRow label="Source type" value={pdf.sourceType === 'image' ? 'Image' : 'PDF'} />
+          <MetadataRow label="File size" value={formatFileSize(pdf.sourceSize ?? pdf.file.size)} />
           <MetadataRow label="Total pages" value={String(pdf.totalPages)} />
           <MetadataRow
             label="Imported"
@@ -67,26 +69,49 @@ export function DocumentInspector({ page, pdf, onClose }: DocumentInspectorProps
         </dl>
       </section>
 
-      <section className="inspector-section">
-        <h3>PDF metadata</h3>
-        <dl>
-          <MetadataRow label="Title" value={pdf.metadata.title} />
-          <MetadataRow label="Author" value={pdf.metadata.author} />
-          <MetadataRow label="Subject" value={pdf.metadata.subject} />
-          <MetadataRow label="Keywords" value={pdf.metadata.keywords} />
-          <MetadataRow label="Created" value={pdf.metadata.creationDate} />
-          <MetadataRow label="Modified" value={pdf.metadata.modificationDate} />
-          <MetadataRow label="Creator" value={pdf.metadata.creator} />
-          <MetadataRow label="Producer" value={pdf.metadata.producer} />
-          <MetadataRow label="PDF version" value={pdf.metadata.version} />
-        </dl>
-      </section>
+      {pdf.sourceType !== 'image' && (
+        <section className="inspector-section">
+          <h3>PDF metadata</h3>
+          <dl>
+            <MetadataRow label="Title" value={pdf.metadata.title} />
+            <MetadataRow label="Author" value={pdf.metadata.author} />
+            <MetadataRow label="Subject" value={pdf.metadata.subject} />
+            <MetadataRow label="Keywords" value={pdf.metadata.keywords} />
+            <MetadataRow label="Created" value={pdf.metadata.creationDate} />
+            <MetadataRow label="Modified" value={pdf.metadata.modificationDate} />
+            <MetadataRow label="Creator" value={pdf.metadata.creator} />
+            <MetadataRow label="Producer" value={pdf.metadata.producer} />
+            <MetadataRow label="PDF version" value={pdf.metadata.version} />
+          </dl>
+        </section>
+      )}
 
       <section className="inspector-section">
         <h3>Page details</h3>
         <dl>
           <MetadataRow label="Page number" value={String(page.pageNumber)} />
           <MetadataRow label="Label" value={page.label ?? ''} />
+          {pdf.sourceType === 'image' && (
+            <div className="inspector-metadata-row">
+              <dt>Orientation</dt>
+              <dd>
+                <select
+                  className="inspector-orientation-select"
+                  aria-label="Image page orientation"
+                  value={page.width > page.height ? 'landscape' : 'portrait'}
+                  onChange={(event) => {
+                    const orientation = event.target.value
+                    if (orientation === 'portrait' || orientation === 'landscape') {
+                      onSetImageOrientation(page.id, orientation)
+                    }
+                  }}
+                >
+                  <option value="portrait">Portrait</option>
+                  <option value="landscape">Landscape</option>
+                </select>
+              </dd>
+            </div>
+          )}
           <MetadataRow label="Rotation" value={`${page.rotation}°`} />
           <MetadataRow label="Dimensions" value={`${page.width.toFixed(1)} × ${page.height.toFixed(1)} pt`} />
           <MetadataRow label="Width" value={`${page.width.toFixed(1)} pt`} />

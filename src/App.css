@@ -946,6 +946,21 @@
   margin: 0;
 }
 
+.inspector-orientation-select {
+  width: 100%;
+  border: 1px solid rgba(211, 202, 255, 0.18);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e0dce6;
+  padding: 5px 7px;
+  font: inherit;
+}
+
+.inspector-orientation-select option {
+  background: #25242d;
+  color: #e0dce6;
+}
+
 .inspector-metadata-row {
   display: grid;
   grid-template-columns: 100px minmax(0, 1fr);
@@ -1254,6 +1269,135 @@
   justify-content: flex-end;
   background: rgba(9, 9, 14, 0.48);
   backdrop-filter: blur(3px);
+}
+
+.image-import-backdrop {
+  position: fixed;
+  z-index: 70;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(9, 9, 14, 0.62);
+  padding: 20px;
+  backdrop-filter: blur(4px);
+}
+
+.image-import-dialog {
+  width: min(460px, 100%);
+  border: 1px solid rgba(211, 202, 255, 0.16);
+  border-radius: 18px;
+  background:
+    radial-gradient(ellipse at top right, rgba(125, 102, 193, 0.13), transparent 45%),
+    #25242d;
+  color: #eceaf2;
+  padding: 24px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+}
+
+.image-import-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.image-import-icon,
+.image-import-header > button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid rgba(199, 184, 255, 0.2);
+  border-radius: 10px;
+  background: rgba(151, 127, 226, 0.1);
+  color: #c4b7f5;
+}
+
+.image-import-header > button {
+  width: 30px;
+  height: 30px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #c7c2d1;
+  cursor: pointer;
+}
+
+.image-import-dialog h2 {
+  margin: 18px 0 7px;
+  color: #f4f1fb;
+  font-size: 19px;
+}
+
+.image-import-description,
+.image-import-note {
+  color: #b8b5c1;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.image-import-description {
+  margin: 0 0 20px;
+}
+
+.image-import-orientation {
+  display: grid;
+  gap: 8px;
+  color: #dedbe6;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.image-import-orientation select {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid rgba(211, 202, 255, 0.18);
+  border-radius: 9px;
+  outline: 0;
+  background: #302e39;
+  color: #f0edf7;
+  padding: 0 10px;
+  font: inherit;
+}
+
+.image-import-orientation select:focus-visible {
+  border-color: #a995f2;
+  box-shadow: 0 0 0 3px rgba(169, 149, 242, 0.15);
+}
+
+.image-import-note {
+  margin: 10px 0 0;
+  color: #9d99a8;
+  font-size: 10px;
+}
+
+.image-import-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 24px;
+}
+
+.image-import-actions button {
+  min-height: 37px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  padding: 0 13px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.image-import-cancel {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8e6ee;
+}
+
+.image-import-submit {
+  border-color: rgba(169, 149, 242, 0.35) !important;
+  background: #6658a6;
+  color: #fff;
+}
+
+.image-import-submit:hover {
+  background: #7969bf;
 }
 
 .export-drawer {

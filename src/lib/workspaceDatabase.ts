@@ -11,6 +11,8 @@ interface StoredPdf {
   importedAt: string
   totalPages: number
   metadata: PdfMetadata
+  sourceType?: UploadedPdf['sourceType']
+  sourceSize?: number
 }
 
 interface StoredWorkspace {
@@ -83,6 +85,8 @@ export async function savePdfFile(pdf: UploadedPdf): Promise<void> {
       importedAt: pdf.importedAt,
       totalPages: pdf.totalPages,
       metadata: pdf.metadata,
+      sourceType: pdf.sourceType,
+      sourceSize: pdf.sourceSize,
     } satisfies StoredPdf)
     await transactionDone(transaction)
   } catch (error) {
@@ -134,6 +138,8 @@ export async function loadWorkspace(): Promise<RestoredWorkspace> {
     if (!storedFile) return []
     return [{
       ...pdf,
+      sourceType: storedFile.sourceType ?? pdf.sourceType,
+      sourceSize: storedFile.sourceSize ?? pdf.sourceSize,
       file: new File([storedFile.file], storedFile.name, {
         type: storedFile.file.type || 'application/pdf',
         lastModified: Date.parse(storedFile.importedAt) || Date.now(),

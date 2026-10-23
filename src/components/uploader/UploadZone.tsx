@@ -11,7 +11,7 @@ interface UploadZoneProps {
 
 function rejectionMessage(rejection: FileRejection): string {
   if (rejection.errors.some((error) => error.code === 'file-invalid-type')) {
-    return 'Only PDF files are supported. Choose a file ending in .pdf.'
+    return 'Only PDF, JPEG, and PNG files are supported.'
   }
   return rejection.errors.map((error) => error.message).join(' ')
 }
@@ -35,14 +35,18 @@ export function UploadZone({ isProcessing, onFiles, onRejected }: UploadZoneProp
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop: handleDrop,
-    accept: { 'application/pdf': ['.pdf'] },
+    accept: {
+      'application/pdf': ['.pdf'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+    },
   })
 
   return (
     <div
       {...getRootProps({
         className: `upload-zone${isDragActive ? ' is-dragging' : ''}${isProcessing ? ' is-disabled' : ''}`,
-        'aria-label': 'PDF upload area',
+        'aria-label': 'PDF and image upload area',
       })}
     >
       <input {...getInputProps({ className: 'upload-input' })} />
@@ -56,10 +60,10 @@ export function UploadZone({ isProcessing, onFiles, onRejected }: UploadZoneProp
         </span>
         <p className="upload-title">
           {isDragActive
-            ? 'Drop your PDFs here'
+            ? 'Drop PDFs or images here'
             : isProcessing
               ? 'Your pages are on their way'
-              : 'Drop your PDFs here'}
+              : 'Drop PDFs or images here'}
         </p>
         <p className="upload-help">
           or{' '}
@@ -76,7 +80,7 @@ export function UploadZone({ isProcessing, onFiles, onRejected }: UploadZoneProp
           </button>{' '}
           from your device
         </p>
-        <span className="upload-formats">PDF files · select multiple</span>
+        <span className="upload-formats">PDF, JPEG, PNG · select multiple</span>
       </div>
     </div>
   )
