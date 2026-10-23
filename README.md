@@ -30,3 +30,7 @@ If you are developing a production application, we recommend enabling type-aware
 ```
 
 See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+
+## Select and copy page text
+
+Open a page in full view and drag across its text to select and copy it. PDFs that already contain text are selectable automatically. For scanned, image-only pages, choose **Recognize text**; OCR runs in the browser and adds a selectable text layer without modifying the PDF. The OCR engine and English language data are downloaded on first use, but the document itself stays on the device.

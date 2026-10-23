@@ -1,8 +1,35 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { flushSync } from 'react-dom'
-import { Check, ChevronLeft, ChevronRight, Pencil, RotateCcw, RotateCw, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Pencil, RotateCcw, RotateCw, ScanText, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { TextLayer } from 'pdfjs-dist'
+import workerUrl from 'tesseract.js/dist/worker.min.js?url'
 import type { PdfPage, UploadedPdf } from '../../types/pdf'
-import { peekPageBitmap, renderFullPage, thumbnailBaseRotation } from '../../lib/pdfThumbnailCache'
+import {
+  loadFullPageTextLayer,
+  peekPageBitmap,
+  renderFullPage,
+  thumbnailBaseRotation,
+  type FullPageTextLayer,
+} from '../../lib/pdfThumbnailCache'
+
+interface PageTextLayer extends FullPageTextLayer {
+  key: string
+}
+
+interface OcrWord {
+  text: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+interface OcrTextLayer {
+  key: string
+  width: number
+  height: number
+  words: OcrWord[]
+}
 
 interface PagePreviewViewerProps {
   pages: PdfPage[]
@@ -40,6 +67,8 @@ export function PagePreviewViewer({
   onClose,
 }: PagePreviewViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const pageSurfaceRef = useRef<HTMLDivElement>(null)
+  const textLayerRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const panRef = useRef<{ x: number; y: number; left: number; top: number; moved: boolean } | null>(null)
@@ -54,6 +83,14 @@ export function PagePreviewViewer({
   const [isZoomAnimating, setIsZoomAnimating] = useState(false)
   const [aspect, setAspect] = useState(0.77)
   const [rendered, setRendered] = useState<{ key: string; failed: boolean }>()
+  const [pageTextLayer, setPageTextLayer] = useState<PageTextLayer>()
+  const [textLayerError, setTextLayerError] = useState<{ key: string; message: string }>()
+  const [ocrTextLayer, setOcrTextLayer] = useState<OcrTextLayer>()
+  const [ocrState, setOcrState] = useState<{
+    key: string
+    status: 'working' | 'error' | 'complete'
+    message: string
+  }>()
   // A turn is animated on the pixels already on screen; the re-render at the new rotation swaps in afterwards.
   const motionRef = useRef({ pageId, prevRotation: 0, visual: 0, animEnd: 0 })
   const layoutRef = useRef({ box: { width: 0, height: 0 }, aspect: 0.77 })
@@ -62,22 +99,26 @@ export function PagePreviewViewer({
   const isRenaming = editingPageId === pageId
   const sourcePdf = page && pdfs.find((pdf) => pdf.id === page.sourcePdfId)
   const rotation = page?.rotation
-  const isLoading = rendered?.key !== pageId
+  const renderKey = `${pageId}:${rotation}`
+  const isLoading = rendered?.key !== renderKey
   const previousId = pages[index - 1]?.id
   const nextId = pages[index + 1]?.id
 
   // Page size at 100%: the whole page fits the stage.
   const fitWidth = Math.min(box.width, box.height * aspect)
   const fitHeight = fitWidth / aspect
+  const textLayerKey = `${renderKey}:${box.width}:${box.height}:${sharpZoom}`
+  const surfaceWidth = fitWidth * zoom
+  const surfaceHeight = fitHeight * zoom
 
   useEffect(() => {
     layoutRef.current = { box, aspect }
   }, [box, aspect])
 
   useEffect(() => {
-    const canvas = canvasRef.current
+    const surface = pageSurfaceRef.current
     const motion = motionRef.current
-    if (rotation === undefined || !canvas) return
+    if (rotation === undefined || !surface) return
     if (motion.pageId !== pageId) {
       motion.pageId = pageId
       motion.prevRotation = rotation
@@ -93,8 +134,8 @@ export function PagePreviewViewer({
     const width = Math.min(stage.width, stage.height * pixelAspect)
     const isSideways = Math.round(motion.visual / 90) % 2 !== 0
     const scale = isSideways ? Math.min(stage.width, stage.height / pixelAspect) / (width / pixelAspect) : 1
-    canvas.style.transition = `transform ${ROTATE_ANIMATION_MS}ms cubic-bezier(0.2, 0.8, 0.2, 1)`
-    canvas.style.transform = `rotate(${motion.visual}deg) scale(${scale})`
+    surface.style.transition = `transform ${ROTATE_ANIMATION_MS}ms cubic-bezier(0.2, 0.8, 0.2, 1)`
+    surface.style.transform = `rotate(${motion.visual}deg) scale(${scale})`
     motion.animEnd = performance.now() + ROTATE_ANIMATION_MS
   }, [pageId, rotation])
 
@@ -195,6 +236,15 @@ export function PagePreviewViewer({
       ) {
         return
       }
+      const selection = window.getSelection()
+      if (
+        event.key.startsWith('Arrow') &&
+        selection &&
+        !selection.isCollapsed &&
+        dialogRef.current?.contains(selection.anchorNode)
+      ) {
+        return
+      }
       if (event.key === 'Escape') onClose()
       else if (event.key === 'ArrowLeft') {
         if (previousId) onNavigate(previousId)
@@ -225,12 +275,135 @@ export function PagePreviewViewer({
   }, [stepZoom])
 
   useEffect(() => {
+    if (!page || !sourcePdf) return
+    let isCurrent = true
+
+    void loadFullPageTextLayer(
+      page.sourcePdfId,
+      sourcePdf.file,
+      page.pageNumber,
+      page.rotation,
+      { width: box.width * sharpZoom, height: box.height * sharpZoom },
+    ).then(
+      ({ textContent, viewport }) => {
+        if (!isCurrent) return
+        const hasText = textContent.items.some(
+          (item) => 'str' in item && item.str.trim().length > 0,
+        )
+        if (hasText) setPageTextLayer({ key: textLayerKey, textContent, viewport })
+      },
+      (error: unknown) => {
+        if (!isCurrent) return
+        setTextLayerError({
+          key: textLayerKey,
+          message: error instanceof Error ? error.message : 'The page text could not be loaded.',
+        })
+      },
+    )
+
+    return () => {
+      isCurrent = false
+    }
+  }, [box.height, box.width, page, sharpZoom, sourcePdf, textLayerKey])
+
+  useEffect(() => {
+    const container = textLayerRef.current
+    if (!container || !pageTextLayer || pageTextLayer.key !== textLayerKey) return
+    let isCurrent = true
+    container.replaceChildren()
+    const textLayer = new TextLayer({
+      textContentSource: pageTextLayer.textContent,
+      container,
+      viewport: pageTextLayer.viewport,
+    })
+    container.style.setProperty('--text-scale-factor', '1')
+    void textLayer.render().catch((error: unknown) => {
+      if (!isCurrent) return
+      setTextLayerError({
+        key: textLayerKey,
+        message: error instanceof Error ? error.message : 'The page text could not be displayed.',
+      })
+    })
+    return () => {
+      isCurrent = false
+      textLayer.cancel()
+      container.replaceChildren()
+    }
+  }, [pageTextLayer, textLayerKey])
+
+  const handleRecognizeText = async () => {
+    const canvas = canvasRef.current
+    if (!canvas || isLoading) return
+    const key = renderKey
+    setOcrState({ key, status: 'working', message: 'Starting OCR…' })
+    setOcrTextLayer(undefined)
+    setTextLayerError(undefined)
+    let worker: Awaited<ReturnType<typeof import('tesseract.js').createWorker>> | undefined
+
+    try {
+      const { createWorker, OEM } = await import('tesseract.js')
+      worker = await createWorker('eng', OEM.LSTM_ONLY, {
+        workerPath: workerUrl,
+        workerBlobURL: false,
+        logger: ({ status, progress }) => {
+          setOcrState({
+            key,
+            status: 'working',
+            message: `${status} ${Math.round(progress * 100)}%`,
+          })
+        },
+      })
+      const result = await worker.recognize(canvas, {}, { blocks: true })
+      const words = (result.data.blocks ?? []).flatMap((block) =>
+        block.paragraphs.flatMap((paragraph) =>
+          paragraph.lines.flatMap((line) =>
+            line.words.map((word, index) => ({
+              text: `${word.text}${index === line.words.length - 1 ? '\n' : ' '}`,
+              x: word.bbox.x0,
+              y: word.bbox.y0,
+              width: word.bbox.x1 - word.bbox.x0,
+              height: word.bbox.y1 - word.bbox.y0,
+            })),
+          ),
+        ),
+      )
+      if (words.length === 0) {
+        setOcrState({ key, status: 'error', message: 'No text was found on this page.' })
+        return
+      }
+      setOcrTextLayer({ key, width: canvas.width, height: canvas.height, words })
+      setOcrState({ key, status: 'complete', message: 'Text ready — select and copy.' })
+    } catch (error: unknown) {
+      setOcrState({
+        key,
+        status: 'error',
+        message: error instanceof Error ? error.message : 'OCR could not recognize this page.',
+      })
+    } finally {
+      if (worker) {
+        try {
+          await worker.terminate()
+        } catch (error: unknown) {
+          setOcrState({
+            key,
+            status: 'error',
+            message: error instanceof Error ? error.message : 'The OCR worker could not be stopped.',
+          })
+        }
+      }
+    }
+  }
+
+  useEffect(() => {
     const canvas = canvasRef.current
     if (!page || !sourcePdf || !canvas) return
     if (canvas.dataset.pageId !== pageId) {
       // First draw for this page: reset any turn left over from the previous one.
-      canvas.style.transition = 'none'
-      canvas.style.transform = 'none'
+      const surface = pageSurfaceRef.current
+      if (surface) {
+        surface.style.transition = 'none'
+        surface.style.transform = 'none'
+      }
       motionRef.current.visual = 0
       // An already-rendered grid thumbnail shows instantly while the sharp render runs.
       const base = thumbnailBaseRotation(page.sourcePdfId, page.pageNumber, page.rotation)
@@ -266,13 +439,16 @@ export function PagePreviewViewer({
         canvas.width = buffer.width
         canvas.height = buffer.height
         canvas.getContext('2d')?.drawImage(buffer, 0, 0)
-        canvas.style.transition = 'none'
-        canvas.style.transform = 'none'
+        const surface = pageSurfaceRef.current
+        if (surface) {
+          surface.style.transition = 'none'
+          surface.style.transform = 'none'
+        }
         motionRef.current.visual = 0
         // The size has to follow the new orientation in the same frame as the pixels.
         flushSync(() => {
           setAspect(buffer.width / buffer.height)
-          setRendered({ key: pageId, failed: false })
+          setRendered({ key: renderKey, failed: false })
         })
         canvas.style.visibility = 'visible'
         void canvas.offsetWidth
@@ -282,17 +458,23 @@ export function PagePreviewViewer({
       })
       .catch((error: unknown) => {
         if (!isCurrent || (error instanceof Error && error.name === 'RenderingCancelledException')) return
-        setRendered({ key: pageId, failed: true })
+        setRendered({ key: renderKey, failed: true })
       })
     return () => {
       isCurrent = false
       render.cancel()
     }
-  }, [box, page, pageId, sourcePdf, sharpZoom])
+  }, [box, page, pageId, renderKey, sourcePdf, sharpZoom])
 
   const handlePanStart = (event: ReactPointerEvent<HTMLDivElement>) => {
     const stage = stageRef.current
     if (!stage || event.button !== 0) return
+    if (
+      event.target instanceof HTMLElement &&
+      event.target.closest('.page-viewer-text-layer, .page-viewer-ocr-layer')
+    ) {
+      return
+    }
     panRef.current = {
       x: event.clientX,
       y: event.clientY,
@@ -322,7 +504,15 @@ export function PagePreviewViewer({
   }
 
   if (!page) return null
-  const showFailure = rendered?.key === pageId && rendered.failed
+  const showFailure = rendered?.key === renderKey && rendered.failed
+  const activeOcrTextLayer = ocrTextLayer?.key === renderKey ? ocrTextLayer : undefined
+  const activeOcrState = ocrState?.key === renderKey ? ocrState : undefined
+  const activeTextLayerError =
+    textLayerError?.key === textLayerKey ? textLayerError.message : undefined
+  const showNativeTextLayer =
+    !isLoading &&
+    !activeOcrTextLayer &&
+    pageTextLayer?.key === textLayerKey
   const percent = Math.round(zoom * 100)
 
   return (
@@ -406,12 +596,55 @@ export function PagePreviewViewer({
             if (event.target === event.currentTarget && !panRef.current?.moved) onClose()
           }}
         >
-          <canvas
-            ref={canvasRef}
-            className={`page-viewer-image${isZoomAnimating ? ' is-zooming' : ''}`}
-            style={{ width: fitWidth * zoom, height: fitHeight * zoom }}
-            onClick={(event) => event.stopPropagation()}
-          />
+          <div
+            ref={pageSurfaceRef}
+            className={`page-viewer-page${isZoomAnimating ? ' is-zooming' : ''}`}
+            style={{ width: surfaceWidth, height: surfaceHeight }}
+          >
+            <canvas
+              ref={canvasRef}
+              className="page-viewer-image"
+              onClick={(event) => event.stopPropagation()}
+            />
+            {pageTextLayer?.key === textLayerKey && (
+              <div
+                ref={textLayerRef}
+                className="page-viewer-text-layer"
+                style={{
+                  width: pageTextLayer.viewport.width,
+                  height: pageTextLayer.viewport.height,
+                  transform: `scale(${surfaceWidth / pageTextLayer.viewport.width}, ${surfaceHeight / pageTextLayer.viewport.height})`,
+                  visibility: showNativeTextLayer ? 'visible' : 'hidden',
+                }}
+              />
+            )}
+            {activeOcrTextLayer && !isLoading && (
+              <div
+                className="page-viewer-ocr-layer"
+                style={{
+                  width: activeOcrTextLayer.width,
+                  height: activeOcrTextLayer.height,
+                  transform: `scale(${surfaceWidth / activeOcrTextLayer.width}, ${surfaceHeight / activeOcrTextLayer.height})`,
+                }}
+              >
+                {activeOcrTextLayer.words.map((word, index) => (
+                  <span
+                    key={`${word.x}-${word.y}-${index}`}
+                    style={{
+                      left: word.x,
+                      top: word.y,
+                      width: word.width,
+                      height: word.height,
+                      fontSize: word.height,
+                      lineHeight: `${word.height}px`,
+                    }}
+                  >
+                    {word.text}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         {showFailure && <span className="page-viewer-message">This page could not be rendered.</span>}
         {isLoading && !showFailure && <span className="loading-spinner page-viewer-spinner" />}
@@ -466,6 +699,28 @@ export function PagePreviewViewer({
             <ZoomIn size={16} />
           </button>
         </div>
+        <span className="page-viewer-toolbar-divider" aria-hidden="true" />
+        <button
+          type="button"
+          className="page-action-button"
+          aria-label={activeOcrTextLayer ? 'Run OCR again' : 'Recognize text on this page'}
+          title="Runs on this device. The OCR engine and English data download on first use; the PDF is not uploaded."
+          disabled={isLoading || activeOcrState?.status === 'working'}
+          onClick={() => void handleRecognizeText()}
+        >
+          <ScanText size={16} />
+          <span>{activeOcrState?.status === 'working' ? 'Recognizing…' : 'Recognize text'}</span>
+        </button>
+        {activeOcrState && (
+          <span className="page-viewer-ocr-status" role="status">
+            {activeOcrState.message}
+          </span>
+        )}
+        {activeTextLayerError && (
+          <span className="page-viewer-ocr-status" role="status">
+            {activeTextLayerError} You can still try OCR.
+          </span>
+        )}
         <span className="page-viewer-toolbar-divider" aria-hidden="true" />
         <button
           type="button"

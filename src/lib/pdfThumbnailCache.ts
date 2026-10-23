@@ -1,5 +1,5 @@
 import * as pdfjs from 'pdfjs-dist'
-import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
+import type { PDFDocumentProxy, PDFPageProxy, PageViewport, RenderTask } from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { PDFJS_ASSET_OPTIONS } from './pdfjsOptions'
 import { fullPageScale, generateThumbnailBitmap } from './thumbnailGenerator'
@@ -242,6 +242,34 @@ export interface FullPageRender {
   cancel: () => void
   /** True once the sharp render has been drawn to the output canvas. */
   isDrawn: () => boolean
+}
+
+export interface FullPageTextLayer {
+  textContent: Awaited<ReturnType<PDFPageProxy['getTextContent']>>
+  viewport: PageViewport
+}
+
+/** Loads selectable text at the same scale and rotation used by `renderFullPage`. */
+export async function loadFullPageTextLayer(
+  sourcePdfId: string,
+  file: File,
+  pageNumber: number,
+  rotation: number,
+  target: { width: number; height: number },
+): Promise<FullPageTextLayer> {
+  const pdfDocument = await getDocument(sourcePdfId, file)
+  const page = await pdfDocument.getPage(pageNumber)
+  const unitViewport = page.getViewport({ scale: 1, rotation })
+  const viewport = page.getViewport({
+    scale: fullPageScale(unitViewport, target),
+    rotation,
+  })
+
+  try {
+    return { textContent: await page.getTextContent(), viewport }
+  } finally {
+    page.cleanup()
+  }
 }
 
 /** Renders one page sharp enough to fill `target` CSS pixels, drawing into `output` only once finished. */
