@@ -318,3 +318,64 @@ export function setLiftedDragImage(event: { dataTransfer: DataTransfer; clientX:
   // The browser has taken its picture by the time the event finishes.
   window.setTimeout(() => ghost.remove(), 0)
 }
+
+/** Where a dragged card was let go: the client position of its top-left corner. */
+export interface DragRelease {
+  id: string
+  left: number
+  top: number
+}
+
+const LANDING_MS = 480
+const SKELETON_COLLAPSE_MS = 260
+
+// The browser drops its drag picture the moment the pointer is released, so the real card takes over: it starts where
+// the picture was, still lifted and tilted, and settles into its slot.
+export function landDraggedCard(card: HTMLElement, release: DragRelease) {
+  if (prefersReducedMotion()) return
+  const now = card.getBoundingClientRect()
+  const dx = release.left - now.left
+  const dy = release.top - now.top
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return
+  card.style.zIndex = '6'
+  const landing = card.animate(
+    [
+      {
+        transform: `translate(${dx}px, ${dy}px) rotate(3deg) scale(1.03)`,
+        filter: 'drop-shadow(0 22px 20px rgba(0, 0, 0, 0.4)) drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3))',
+      },
+      {
+        transform: 'translate(0, 0) rotate(0deg) scale(1)',
+        filter: 'drop-shadow(0 0 0 rgba(0, 0, 0, 0)) drop-shadow(0 0 0 rgba(0, 0, 0, 0))',
+      },
+    ],
+    { duration: LANDING_MS, easing: SPRING },
+  )
+  const release_ = () => card.style.removeProperty('z-index')
+  landing.finished.then(release_, release_)
+}
+
+// The placeholder left at the origin folds away when the card lands somewhere else.
+export function collapseSkeleton(rect: { left: number; top: number; width: number; height: number }) {
+  const grid = getGrid()
+  if (!grid || prefersReducedMotion()) return
+  const layer = createFlightLayer(grid)
+  const skeleton = document.createElement('div')
+  skeleton.className = 'drag-skeleton-ghost'
+  Object.assign(skeleton.style, {
+    position: 'fixed',
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+  })
+  layer.append(skeleton)
+  const fold = skeleton.animate(
+    [
+      { opacity: 1, transform: 'scale(1)' },
+      { opacity: 0, transform: 'scale(0.9)' },
+    ],
+    { duration: SKELETON_COLLAPSE_MS, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' },
+  )
+  void fold.finished.then(() => layer.remove(), () => layer.remove())
+}

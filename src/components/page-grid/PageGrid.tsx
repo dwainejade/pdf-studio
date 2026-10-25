@@ -15,7 +15,13 @@ import type { PageGroup, PdfPage, UploadedPdf } from '../../types/pdf'
 import { PageThumbnail } from './PageThumbnail'
 import { useGridWindow } from './useGridWindow'
 import { displayName } from '../../lib/displayName'
-import { animateArrivals, setLiftedDragImage } from '../../lib/pageAnimations'
+import {
+  animateArrivals,
+  collapseSkeleton,
+  landDraggedCard,
+  setLiftedDragImage,
+  type DragRelease,
+} from '../../lib/pageAnimations'
 import {
   prepareDragOut,
   prepareDragOutFiles,
@@ -29,6 +35,41 @@ const REARRANGE_ANIMATION_MS = 220
 const NUDGE_PX = 8
 
 type DropSide = 'before' | 'after'
+
+/** Where the pointer took hold of a card, and where the card's preview sat, so a drop can pick up from there. */
+interface DragGrab {
+  x: number
+  y: number
+  preview: { left: number; top: number; width: number; height: number }
+}
+
+const grabFrom = (event: ReactDragEvent<HTMLElement>): DragGrab => {
+  const bounds = event.currentTarget.getBoundingClientRect()
+  // A group's slot is its whole stack, not just the cover page on top.
+  const preview =
+    event.currentTarget.querySelector('.group-preview-stack, .page-preview')?.getBoundingClientRect() ?? bounds
+  return {
+    x: event.clientX - bounds.left,
+    y: event.clientY - bounds.top,
+    preview: { left: preview.left, top: preview.top, width: preview.width, height: preview.height },
+  }
+}
+
+// Dropping right beside the dragged card's own spot would leave the order as it is.
+function slotChangesNothing(
+  items: Array<{ type: 'page'; page: PdfPage } | { type: 'group'; pages: PdfPage[] }>,
+  slot: string,
+  draggingId: string | null,
+): boolean {
+  const [overId, side] = slot.split('|')
+  const idOf = (item: (typeof items)[number]) => (item.type === 'group' ? item.pages[0].id : item.page.id)
+  const overIndex = items.findIndex((item) => idOf(item) === overId)
+  const dragIndex = items.findIndex((item) => idOf(item) === draggingId)
+  if (overIndex < 0 || dragIndex < 0) return false
+  let position = overIndex + (side === 'after' ? 1 : 0)
+  if (dragIndex < position) position -= 1
+  return position === dragIndex
+}
 
 interface PageGridProps {
   pages: PdfPage[]
@@ -67,8 +108,8 @@ interface GroupCardProps {
   isSelected: boolean
   isBeingDragged: boolean
   onSelect: (modifiers: { extend: boolean; toggle: boolean }) => void
-  onDragStart: (pageId: string) => void
-  onDragEnd: () => void
+  onDragStart: (pageId: string, grab: DragGrab) => void
+  onDragEnd: (event?: ReactDragEvent<HTMLElement>) => void
   onDragOverPage: (pageId: string, event: ReactDragEvent<HTMLElement>) => void
   onRename: (groupId: string, name: string) => void
   onInspectPage: (pageId: string) => void
@@ -159,7 +200,7 @@ function GroupCard({
         setLiftedDragImage(event, event.currentTarget, dragOutFiles.reduce((total, file) => total + file.pages.length, 0))
         const payload = readyDragOutFilesPayload(dragOutFiles)
         if (payload) event.dataTransfer.setData('DownloadURL', payload)
-        onDragStart(cover.id)
+        onDragStart(cover.id, grabFrom(event))
       }}
       onDragEnd={onDragEnd}
       onDragOver={(event) => onDragOverPage(cover.id, event)}
@@ -311,8 +352,8 @@ interface PageCardProps {
   isBeingDragged: boolean
   getDragPages: (pageId: string) => PdfPage[]
   getDragFilename: (pages: PdfPage[]) => string | undefined
-  onDragStart: (pageId: string) => void
-  onDragEnd: () => void
+  onDragStart: (pageId: string, grab: DragGrab) => void
+  onDragEnd: (event?: ReactDragEvent<HTMLElement>) => void
   onDragOverPage: (pageId: string, event: ReactDragEvent<HTMLElement>) => void
   onSelectPage: (pageId: string, modifiers: { extend: boolean; toggle: boolean }) => void
   onReorder: (activeId: string, overId: string) => void
@@ -432,7 +473,7 @@ function PageCard({
         setLiftedDragImage(event, event.currentTarget, dragPages.length)
         const payload = readyDragOutPayload(dragPages, getDragFilename(dragPages))
         if (payload) event.dataTransfer.setData('DownloadURL', payload)
-        onDragStart(page.id)
+        onDragStart(page.id, grabFrom(event))
       }}
       onDragEnd={onDragEnd}
       onDragOver={(event) => onDragOverPage(page.id, event)}
@@ -792,11 +833,40 @@ export function PageGrid({
     setHoverSlot(slot)
   }
 
-  const startDrag = (pageId: string) => {
+  const draggingIdRef = useRef<string | null>(null)
+  const grabRef = useRef<DragGrab | null>(null)
+  // Set when a drag ends, and used once by the layout effect to animate the card from where it was let go.
+  const releaseRef = useRef<(DragRelease & { collapse: boolean; origin: DragGrab['preview'] }) | null>(null)
+
+  const startDrag = (pageId: string, grab: DragGrab) => {
+    draggingIdRef.current = pageId
+    grabRef.current = grab
+    releaseRef.current = null
     setDraggingId(pageId)
   }
 
-  const endDrag = () => {
+  // A drag that ends without a drop (Esc, or let go off the grid) flies back from where it was released.
+  const endDrag = (event?: { clientX: number; clientY: number }) => {
+    const id = draggingIdRef.current
+    if (!id) return
+    draggingIdRef.current = null
+    const grab = grabRef.current
+    const insideWindow =
+      event !== undefined &&
+      (event.clientX !== 0 || event.clientY !== 0) &&
+      event.clientX >= 0 &&
+      event.clientY >= 0 &&
+      event.clientX <= window.innerWidth &&
+      event.clientY <= window.innerHeight
+    if (!releaseRef.current && grab && insideWindow) {
+      releaseRef.current = {
+        id,
+        left: event.clientX - grab.x,
+        top: event.clientY - grab.y,
+        collapse: false,
+        origin: grab.preview,
+      }
+    }
     updateHoverSlot(null)
     setDraggingId(null)
   }
@@ -824,9 +894,21 @@ export function PageGrid({
     if (!draggingId) return
     event.preventDefault()
     event.stopPropagation()
-    if (hoverSlot) {
+    let moved = false
+    if (hoverSlot && !slotChangesNothing(gridItems, hoverSlot, draggingId)) {
       const [overId, side] = hoverSlot.split('|') as [string, DropSide]
       onReorder(draggingId, overId, side)
+      moved = true
+    }
+    const grab = grabRef.current
+    if (grab) {
+      releaseRef.current = {
+        id: draggingId,
+        left: event.clientX - grab.x,
+        top: event.clientY - grab.y,
+        collapse: moved,
+        origin: grab.preview,
+      }
     }
     endDrag()
   }
@@ -849,7 +931,8 @@ export function PageGrid({
       const position = { x: bounds.left - gridBounds.left, y: bounds.top - gridBounds.top }
       next.set(id, position)
       const before = previous.get(id)
-      if (!canAnimate || !before) return
+      // The card that was just dragged lands from the release point instead (see below).
+      if (!canAnimate || !before || id === releaseRef.current?.id) return
       const dx = before.x - position.x
       const dy = before.y - position.y
       const isNearViewport = bounds.bottom > -200 && bounds.top < window.innerHeight + 200
@@ -861,10 +944,24 @@ export function PageGrid({
     })
     cardPositionsRef.current = next
 
-    // Cards beside the bar step aside a little, so the gap is felt as well as seen. `translate` is its own property,
-    // so it never fights the transform animations used for reordering.
+    const release = releaseRef.current
+    if (release && canAnimate) {
+      releaseRef.current = null
+      const landed = boundsById.has(release.id)
+        ? grid.querySelector<HTMLElement>(`[data-page-id="${CSS.escape(release.id)}"]`)
+        : null
+      if (landed) landDraggedCard(landed, release)
+      if (release.collapse) collapseSkeleton(release.origin)
+    }
+
+    // Cards beside the bar step aside a little, so the gap is felt as well as seen. Only a card's contents move: the card
+    // box stays put, so what is under the pointer and what the reorder animation measures never change mid-drag.
+    const nudgeTargets = (card: HTMLElement) =>
+      Array.from(card.querySelectorAll<HTMLElement>(':scope > .page-preview, :scope > .page-metadata'))
     grid.querySelectorAll<HTMLElement>('[data-nudged]').forEach((card) => {
-      card.style.translate = ''
+      nudgeTargets(card).forEach((element) => {
+        element.style.translate = ''
+      })
       card.removeAttribute('data-nudged')
     })
 
@@ -877,6 +974,13 @@ export function PageGrid({
       indicator.classList.remove('is-visible')
       return
     }
+
+    // Dropping beside the dragged card's own spot changes nothing, so no bar is shown there.
+    if (slotChangesNothing(gridItems, hoverSlot ?? '', draggingId)) {
+      indicator.classList.remove('is-visible')
+      return
+    }
+
     const gap = parseFloat(getComputedStyle(grid).columnGap) || 0
     const thickness = 4
     const along =
@@ -892,21 +996,24 @@ export function PageGrid({
       indicator.classList.add('is-visible')
     }
 
-    if (canAnimate) {
-      const hoveredCard = grid.querySelector<HTMLElement>(`[data-page-id="${CSS.escape(hovered[0])}"]`)
-      const isCard = (element: Element | null): element is HTMLElement =>
-        element instanceof HTMLElement && element.dataset.pageIds !== undefined
-      const sibling = (card: HTMLElement, direction: 'next' | 'previous') => {
-        let element = direction === 'next' ? card.nextElementSibling : card.previousElementSibling
-        while (element && !isCard(element)) {
-          element = direction === 'next' ? element.nextElementSibling : element.previousElementSibling
-        }
-        return element
+    const isCard = (element: Element | null): element is HTMLElement =>
+      element instanceof HTMLElement && element.dataset.pageIds !== undefined
+    const sibling = (card: HTMLElement, direction: 'next' | 'previous') => {
+      let element = direction === 'next' ? card.nextElementSibling : card.previousElementSibling
+      while (element && !isCard(element)) {
+        element = direction === 'next' ? element.nextElementSibling : element.previousElementSibling
       }
+      return element
+    }
+    const hoveredCard = grid.querySelector<HTMLElement>(`[data-page-id="${CSS.escape(hovered[0])}"]`)
+
+    if (canAnimate) {
       const nudge = (card: HTMLElement | null | undefined, distance: number) => {
         // Only cards in the same row share the gap the bar sits in.
         if (!card || Math.abs(card.getBoundingClientRect().top - bounds.top) > 4) return
-        card.style.translate = `${distance}px 0`
+        nudgeTargets(card).forEach((element) => {
+          element.style.translate = `${distance}px 0`
+        })
         card.setAttribute('data-nudged', '')
       }
       if (hoveredCard) {
@@ -933,7 +1040,10 @@ export function PageGrid({
   // A card scrolled out of the rendered window is unmounted mid-drag and never fires its own dragend.
   useEffect(() => {
     if (!draggingId) return
-    const finish = () => window.setTimeout(endDrag, 0)
+    const finish = (event: Event) => {
+      const { clientX, clientY } = event as DragEvent
+      window.setTimeout(() => endDrag({ clientX, clientY }), 0)
+    }
     window.addEventListener('dragend', finish)
     window.addEventListener('drop', finish)
     return () => {
