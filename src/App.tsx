@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { groupWithAnimation, ungroupWithAnimation } from './lib/groupAnimation'
+import { groupWithAnimation, removeWithAnimation, ungroupWithAnimation } from './lib/pageAnimations'
 import { useDropzone, type FileRejection } from 'react-dropzone'
 import {
   AlertCircle,
@@ -921,6 +921,7 @@ function App() {
               expandedGroupId={activeGroup?.id}
               groupCanvasName={activeGroup?.name}
               onUngroupPage={activeGroup ? ungroupPageFromCanvas : undefined}
+              animateArrivals={isWorkspaceReady}
             />
           </>
         )}
@@ -1190,7 +1191,7 @@ function App() {
                 type="button"
                 className="delete-confirmation-submit"
                 onClick={() => {
-                  deletePages(pendingDeletePageIds)
+                  removeWithAnimation(pendingDeletePageIds, () => deletePages(pendingDeletePageIds))
                   setPendingDeletePageIds([])
                 }}
               >

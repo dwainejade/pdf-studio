@@ -1,5 +1,6 @@
-// Grouping gathers the selected pages into a paper stack; ungrouping deals them back out.
-// The two share one motion language: staggered spring flights with the same sheet tilts the
+// Grouping gathers the selected pages into a paper stack; ungrouping deals them back out. Deleted pages shrink away,
+// new pages drop in, and a dragged page is lifted with a shadow and a tilt.
+// They share one motion language: staggered spring flights with the same sheet tilts the
 // stack uses (see .group-preview-sheet-layer-*).
 
 const STAGGER_MS = 55
@@ -37,7 +38,7 @@ function createSpringEasing() {
   return `linear(${samples.join(', ')})`
 }
 
-const SPRING = createSpringEasing()
+export const SPRING = createSpringEasing()
 
 const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -211,4 +212,109 @@ export function ungroupWithAnimation(pageIds: string[], applyUngroup: () => void
       })
     })
   })
+}
+
+const EXIT_MS = 220
+const ARRIVAL_MS = 420
+const ARRIVAL_STAGGER_MS = 45
+const MAX_ANIMATED_CARDS = 60
+
+// A card leaves when every page on it is being removed; a group that only loses some pages stays.
+const isFullyRemoved = (card: HTMLElement, ids: Set<string>) => idsOf(card).every((id) => ids.has(id))
+
+// Deleted cards shrink and fade where they were while the store updates, and the rest of the grid slides into the gap
+// (the grid's own FLIP handles that part).
+export function removeWithAnimation(pageIds: string[], applyRemoval: () => void) {
+  const grid = getGrid()
+  const ids = new Set(pageIds)
+  const cards =
+    grid && !prefersReducedMotion()
+      ? Array.from(grid.querySelectorAll<HTMLElement>('[data-page-ids]'))
+          .filter((card) => isFullyRemoved(card, ids))
+          .slice(0, MAX_ANIMATED_CARDS)
+      : []
+  const layer = grid && cards.length > 0 ? createFlightLayer(grid) : undefined
+  const leaving = layer
+    ? cards.map((card, index) => {
+        const clone = cloneCard(card, layer, card.getBoundingClientRect(), index + 1)
+        clone.querySelectorAll('button').forEach((button) => button.remove())
+        return clone
+      })
+    : []
+
+  applyRemoval()
+  if (leaving.length === 0) return
+
+  const finished = leaving.map(
+    (clone, index) =>
+      clone.animate(
+        [
+          { opacity: 1, transform: 'scale(1) translateY(0)' },
+          { opacity: 0, transform: 'scale(0.82) translateY(10px)' },
+        ],
+        {
+          duration: EXIT_MS,
+          delay: Math.min(index, 5) * 25,
+          easing: 'cubic-bezier(0.4, 0, 1, 1)',
+          fill: 'forwards',
+        },
+      ).finished,
+  )
+  void Promise.allSettled(finished).then(() => layer?.remove())
+}
+
+// Pages that were not in the grid a moment ago (imported, duplicated, blank, or restored by undo) drop in with a spring.
+export function animateArrivals(grid: HTMLElement, arrivedIds: Set<string>) {
+  if (prefersReducedMotion()) return
+  let step = 0
+  grid.querySelectorAll<HTMLElement>('[data-page-ids]').forEach((card) => {
+    if (step >= MAX_ANIMATED_CARDS || !isFullyRemoved(card, arrivedIds)) return
+    const bounds = card.getBoundingClientRect()
+    if (bounds.bottom < 0 || bounds.top > window.innerHeight) return
+    card.animate(
+      [
+        { opacity: 0, transform: 'translateY(-22px) scale(0.86)' },
+        { opacity: 1, transform: 'translateY(0) scale(1)' },
+      ],
+      { duration: ARRIVAL_MS, delay: Math.min(step, 6) * ARRIVAL_STAGGER_MS, easing: SPRING, fill: 'backwards' },
+    )
+    step += 1
+  })
+}
+
+// While a page is dragged the browser shows a picture of it. This one is lifted: tilted, with a deep shadow,
+// and a count when several pages travel together.
+export function setLiftedDragImage(event: { dataTransfer: DataTransfer; clientX: number; clientY: number }, card: HTMLElement, count: number) {
+  const grid = getGrid()
+  if (!grid || prefersReducedMotion()) return
+  const bounds = card.getBoundingClientRect()
+  const pad = 36
+  const ghost = document.createElement('div')
+  ghost.className = `${grid.className.replace('is-marquee-selecting', '')} drag-ghost`
+  const variables = ['--page-card-min-width', '--page-preview-height']
+    .map((name) => `${name}:${grid.style.getPropertyValue(name)}`)
+    .join(';')
+  ghost.style.cssText = `${variables};position:fixed;left:-10000px;top:0;display:block;min-height:0;padding:${pad}px;width:${bounds.width + pad * 2}px;perspective:none;contain:none;pointer-events:none`
+  ghost.setAttribute('aria-hidden', 'true')
+
+  const clone = card.cloneNode(true) as HTMLElement
+  clone.classList.remove('is-selected', 'is-dragging')
+  clone.querySelectorAll('.page-metadata, button').forEach((element) => element.remove())
+  const sourceCanvases = card.querySelectorAll('canvas')
+  clone.querySelectorAll('canvas').forEach((copy, index) => {
+    const canvas = sourceCanvases[index]
+    if (canvas) copy.getContext('2d')?.drawImage(canvas, 0, 0)
+  })
+  Object.assign(clone.style, { width: `${bounds.width}px`, margin: '0', transform: '', transition: 'none' })
+  ghost.append(clone)
+  if (count > 1) {
+    const badge = document.createElement('span')
+    badge.className = 'drag-count-badge'
+    badge.textContent = String(count)
+    ghost.append(badge)
+  }
+  document.body.append(ghost)
+  event.dataTransfer.setDragImage(ghost, pad + (event.clientX - bounds.left), pad + (event.clientY - bounds.top))
+  // The browser has taken its picture by the time the event finishes.
+  window.setTimeout(() => ghost.remove(), 0)
 }

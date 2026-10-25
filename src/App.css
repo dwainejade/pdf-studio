@@ -2430,11 +2430,46 @@
   box-shadow: 0 0 12px rgba(159, 136, 255, 0.9);
   opacity: 0;
   pointer-events: none;
+  /* Hidden, the bar only fades: it must not fly in from wherever it last was. */
+  transition: opacity 120ms ease;
+}
+
+.drop-indicator.is-visible {
+  opacity: 1;
   transition:
-    transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    width 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 240ms cubic-bezier(0.34, 1.4, 0.64, 1),
+    width 240ms var(--ease-out),
+    height 240ms var(--ease-out),
     opacity 120ms ease;
+}
+
+/* Cards beside the drop bar step aside; see NUDGE_PX in PageGrid. */
+.page-grid.view-grid .page-card {
+  transition: translate 200ms var(--ease-out);
+}
+
+/* The picture the browser shows under the pointer while a page is dragged: tilted, lifted, with a count for several. */
+.drag-ghost .page-card {
+  opacity: 0.97;
+  transform: rotate(3deg) scale(1.03);
+  filter: drop-shadow(0 22px 20px rgba(0, 0, 0, 0.4)) drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3));
+}
+
+.drag-count-badge {
+  position: absolute;
+  top: 26px;
+  right: 26px;
+  display: grid;
+  min-width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
 }
 
 .page-card.is-dragging {

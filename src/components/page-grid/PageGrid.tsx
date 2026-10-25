@@ -15,6 +15,7 @@ import type { PageGroup, PdfPage, UploadedPdf } from '../../types/pdf'
 import { PageThumbnail } from './PageThumbnail'
 import { useGridWindow } from './useGridWindow'
 import { displayName } from '../../lib/displayName'
+import { animateArrivals, setLiftedDragImage } from '../../lib/pageAnimations'
 import {
   prepareDragOut,
   prepareDragOutFiles,
@@ -24,6 +25,8 @@ import {
 } from '../../lib/export/dragOut'
 
 const REARRANGE_ANIMATION_MS = 220
+// How far the cards beside the drop bar step away from it.
+const NUDGE_PX = 8
 
 type DropSide = 'before' | 'after'
 
@@ -51,6 +54,8 @@ interface PageGridProps {
   expandedGroupId?: string
   groupCanvasName?: string
   onUngroupPage?: (pageId: string) => void
+  /** New pages drop in with an animation once the workspace has loaded. */
+  animateArrivals?: boolean
 }
 
 interface GroupCardProps {
@@ -151,6 +156,7 @@ function GroupCard({
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = 'copyMove'
         event.dataTransfer.setData('text/plain', cover.id)
+        setLiftedDragImage(event, event.currentTarget, dragOutFiles.reduce((total, file) => total + file.pages.length, 0))
         const payload = readyDragOutFilesPayload(dragOutFiles)
         if (payload) event.dataTransfer.setData('DownloadURL', payload)
         onDragStart(cover.id)
@@ -423,6 +429,7 @@ function PageCard({
         event.dataTransfer.setData('text/plain', page.id)
         // Lets the same drag also drop as a file on the desktop or a folder.
         const dragPages = getDragPages(page.id)
+        setLiftedDragImage(event, event.currentTarget, dragPages.length)
         const payload = readyDragOutPayload(dragPages, getDragFilename(dragPages))
         if (payload) event.dataTransfer.setData('DownloadURL', payload)
         onDragStart(page.id)
@@ -559,6 +566,7 @@ export function PageGrid({
   expandedGroupId,
   groupCanvasName,
   onUngroupPage,
+  animateArrivals: shouldAnimateArrivals = false,
 }: PageGridProps) {
   const sourcePdfById = useMemo(
     () => new Map(pdfs.map((pdf) => [pdf.id, pdf])),
@@ -853,13 +861,20 @@ export function PageGrid({
     })
     cardPositionsRef.current = next
 
+    // Cards beside the bar step aside a little, so the gap is felt as well as seen. `translate` is its own property,
+    // so it never fights the transform animations used for reordering.
+    grid.querySelectorAll<HTMLElement>('[data-nudged]').forEach((card) => {
+      card.style.translate = ''
+      card.removeAttribute('data-nudged')
+    })
+
     // The bar sits centred in the gap on one side of the hovered card.
     const indicator = indicatorRef.current
     if (!indicator) return
     const hovered = hoverSlot?.split('|') as [string, DropSide] | undefined
     const bounds = hovered ? boundsById.get(hovered[0]) : undefined
     if (!hovered || !bounds) {
-      indicator.style.opacity = '0'
+      indicator.classList.remove('is-visible')
       return
     }
     const gap = parseFloat(getComputedStyle(grid).columnGap) || 0
@@ -867,11 +882,53 @@ export function PageGrid({
     const along =
       (hovered[1] === 'after' ? bounds.right - gridBounds.left + gap / 2 : bounds.left - gridBounds.left - gap / 2) -
       thickness / 2
+    const wasVisible = indicator.classList.contains('is-visible')
     indicator.style.width = `${thickness}px`
     indicator.style.height = `${bounds.height}px`
     indicator.style.transform = `translate(${along}px, ${bounds.top - gridBounds.top}px)`
-    indicator.style.opacity = '1'
+    // A bar that was hidden appears in place; only a visible bar slides between slots.
+    if (!wasVisible) {
+      void indicator.offsetWidth
+      indicator.classList.add('is-visible')
+    }
+
+    if (canAnimate) {
+      const hoveredCard = grid.querySelector<HTMLElement>(`[data-page-id="${CSS.escape(hovered[0])}"]`)
+      const isCard = (element: Element | null): element is HTMLElement =>
+        element instanceof HTMLElement && element.dataset.pageIds !== undefined
+      const sibling = (card: HTMLElement, direction: 'next' | 'previous') => {
+        let element = direction === 'next' ? card.nextElementSibling : card.previousElementSibling
+        while (element && !isCard(element)) {
+          element = direction === 'next' ? element.nextElementSibling : element.previousElementSibling
+        }
+        return element
+      }
+      const nudge = (card: HTMLElement | null | undefined, distance: number) => {
+        // Only cards in the same row share the gap the bar sits in.
+        if (!card || Math.abs(card.getBoundingClientRect().top - bounds.top) > 4) return
+        card.style.translate = `${distance}px 0`
+        card.setAttribute('data-nudged', '')
+      }
+      if (hoveredCard) {
+        const after = hovered[1] === 'after'
+        nudge(hoveredCard, after ? -NUDGE_PX : NUDGE_PX)
+        const neighbour = sibling(hoveredCard, after ? 'next' : 'previous')
+        if (isCard(neighbour) && neighbour.dataset.pageId !== draggingId) nudge(neighbour, after ? NUDGE_PX : -NUDGE_PX)
+      }
+    }
   }, [gridItems, draggingId, hoverSlot, gridWindow.startIndex, gridWindow.endIndex])
+
+  // Pages that were not in the workspace a moment ago drop in. The first pass after loading only records what is there.
+  const knownPageIdsRef = useRef(new Set<string>())
+  const arrivalsWereEnabledRef = useRef(false)
+  useLayoutEffect(() => {
+    const arrived = new Set<string>()
+    for (const page of allPages) if (!knownPageIdsRef.current.has(page.id)) arrived.add(page.id)
+    const shouldAnimate = shouldAnimateArrivals && arrivalsWereEnabledRef.current && arrived.size > 0
+    knownPageIdsRef.current = new Set(allPages.map((page) => page.id))
+    arrivalsWereEnabledRef.current = shouldAnimateArrivals
+    if (shouldAnimate && gridRef.current) animateArrivals(gridRef.current, arrived)
+  }, [allPages, shouldAnimateArrivals])
 
   // A card scrolled out of the rendered window is unmounted mid-drag and never fires its own dragend.
   useEffect(() => {
