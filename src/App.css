@@ -509,9 +509,7 @@
   height: max(170px, var(--page-preview-height, 224px));
   padding: 0;
   place-items: center;
-  background:
-    radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.06), transparent 60%),
-    var(--surface-preview);
+  background: transparent;
   overflow: hidden;
 }
 
@@ -556,8 +554,7 @@
   .thumbnail-loading {
     animation: none;
   }
-  .page-card:hover,
-  .page-grid.view-grid .page-card:hover .page-preview {
+  .page-card:hover {
     transform: none;
   }
 }
@@ -2053,13 +2050,13 @@
 }
 
 .page-grid.view-grid .page-preview {
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid transparent;
   border-radius: var(--radius-card);
-  box-shadow: var(--shadow-card);
+  box-shadow: none;
   transition:
     box-shadow 180ms var(--ease-out),
     border-color 180ms var(--ease-out),
-    transform 180ms var(--ease-out);
+    background 180ms var(--ease-out);
 }
 
 .page-grid.view-grid .page-card:hover {
@@ -2068,54 +2065,47 @@
 
 .group-preview-stack {
   position: relative;
-  perspective: 900px;
-  transform-style: preserve-3d;
   width: calc(100% - 24px);
-  height: calc(max(170px, var(--page-preview-height, 224px)) - 48px);
-  margin: 36px auto 12px;
+  height: calc(max(170px, var(--page-preview-height, 224px)) - 24px);
+  margin: 12px auto;
 }
 
 .group-preview-sheet {
   position: absolute;
-  inset: 0;
-  border: 1px solid rgba(208, 197, 255, 0.35);
-  border-radius: 12px;
-  background: #aaa5bb;
+  top: 50%;
+  left: 50%;
+  /* matches the cover page: the thumbnail is drawn at 90% of the stack box */
+  height: 90%;
+  aspect-ratio: 0.77;
+  border-radius: 2px;
+  background: #f4f3f7;
   pointer-events: none;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.16);
-  transform-origin: center bottom;
+  box-shadow: var(--shadow-page);
+  transform-origin: center;
 }
 
 .group-preview-sheet-layer-1 {
   z-index: 1;
-  opacity: 0.68;
-  filter: brightness(0.76);
-  transform: translate3d(8px, -32px, 0) rotateX(5deg) scaleX(0.84);
+  background: #d9d6e0;
+  transform: translate(-50%, -50%) translate(-9px, 5px) rotate(-6deg);
 }
 
 .group-preview-sheet-layer-2 {
   z-index: 2;
-  opacity: 0.76;
-  filter: brightness(0.82);
-  transform: translate3d(6px, -24px, 0) rotateX(4deg) scaleX(0.88);
+  background: #e2dfe8;
+  transform: translate(-50%, -50%) translate(8px, 4px) rotate(4.5deg);
 }
 
 .group-preview-sheet-layer-3 {
   z-index: 3;
-  opacity: 0.84;
-  filter: brightness(0.88);
-  transform: translate3d(4px, -16px, 0) rotateX(3deg) scaleX(0.92);
+  background: #eceaf1;
+  transform: translate(-50%, -50%) translate(-5px, 2px) rotate(-2.5deg);
 }
 
 .group-preview-sheet-layer-4 {
   z-index: 4;
-  opacity: 0.92;
-  filter: brightness(0.94);
-  transform: translate3d(2px, -8px, 0) rotateX(2deg) scaleX(0.96);
-}
-
-.group-preview-sheet:nth-child(2n) {
-  background: #d0cbd9;
+  background: #f4f3f7;
+  transform: translate(-50%, -50%) translate(3px, 1px) rotate(1.5deg);
 }
 
 .page-grid.view-grid .group-preview-front {
@@ -2125,7 +2115,7 @@
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  background: #e8e6e8;
+  background: transparent;
 }
 
 .group-count-badge {
@@ -2184,20 +2174,14 @@ button.group-count-badge:hover {
 }
 
 .page-grid.view-grid .page-card:hover .page-preview {
-  border-color: rgba(195, 181, 255, 0.45);
-  box-shadow: var(--shadow-card-hover);
-  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .page-grid.view-grid .page-card.is-selected .page-preview {
   border-color: var(--accent);
-  background:
-    radial-gradient(120% 90% at 50% 0%, rgba(159, 136, 255, 0.18), transparent 65%),
-    var(--surface-preview);
-  box-shadow:
-    0 0 0 2px var(--accent),
-    0 0 0 6px var(--accent-soft),
-    var(--shadow-card-hover);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
 .page-grid.view-grid .page-metadata {
