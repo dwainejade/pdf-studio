@@ -69,6 +69,25 @@ interface GroupCardProps {
   onOpenGroup: (groupId: string) => void
 }
 
+export const RENAME_EVENT = 'pdfstudio-rename'
+
+// Lets the context menu ask a card to start renaming without lifting the editing state.
+function useRenameRequest(beginRename: () => void) {
+  const ref = useRef<HTMLElement>(null)
+  const latest = useRef(beginRename)
+  useEffect(() => {
+    latest.current = beginRename
+  })
+  useEffect(() => {
+    const element = ref.current
+    if (!element) return
+    const handle = () => latest.current()
+    element.addEventListener(RENAME_EVENT, handle)
+    return () => element.removeEventListener(RENAME_EVENT, handle)
+  }, [])
+  return ref
+}
+
 function GroupCard({
   group,
   pages,
@@ -109,8 +128,15 @@ function GroupCard({
     setIsRenaming(false)
   }
 
+  const beginRename = () => {
+    setDraftName(group.name)
+    setIsRenaming(true)
+  }
+  const cardRef = useRenameRequest(beginRename)
+
   return (
     <article
+      ref={cardRef}
       className={`page-card group-card${isSelected ? ' is-selected' : ''}${isBeingDragged ? ' is-dragging' : ''}`}
       tabIndex={0}
       draggable
@@ -129,6 +155,13 @@ function GroupCard({
       }}
       onDragEnd={onDragEnd}
       onDragOver={(event) => onDragOverPage(cover.id, event)}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return
+        if (event.key === 'F2' || event.key === 'Enter') {
+          event.preventDefault()
+          beginRename()
+        }
+      }}
       onClick={(event) => {
         if (event.target instanceof HTMLElement && event.target.closest('input, button')) return
         onInspectPage(cover.id)
@@ -206,7 +239,16 @@ function GroupCard({
               }}
             />
           ) : (
-            <strong>{group.name}</strong>
+            <strong
+              className="page-name"
+              title="Double-click to rename"
+              onDoubleClick={(event) => {
+                event.stopPropagation()
+                beginRename()
+              }}
+            >
+              {group.name}
+            </strong>
           )}
           <span>{pageDescription}</span>
         </div>
@@ -235,11 +277,11 @@ function GroupCard({
             type="button"
             aria-label={`Rename ${group.name}`}
             onPointerDown={(event) => event.stopPropagation()}
+            title="Rename (F2)"
             onClick={(event) => {
               event.preventDefault()
               event.stopPropagation()
-              setDraftName(group.name)
-              setIsRenaming(true)
+              beginRename()
             }}
           >
             <Pencil size={13} />
@@ -298,6 +340,12 @@ function PageCard({
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (isDragging || event.target !== event.currentTarget) return
 
+    if (event.key === 'F2' || event.key === 'Enter') {
+      event.preventDefault()
+      beginRename()
+      return
+    }
+
     const direction =
       event.key === 'ArrowLeft' || event.key === 'ArrowUp'
         ? -1
@@ -326,12 +374,11 @@ function PageCard({
     })
   }
 
-  const beginRename = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
+  const beginRename = () => {
     setDraftLabel(page.label || page.sourcePdfName)
     setIsRenaming(true)
   }
+  const cardRef = useRenameRequest(beginRename)
 
   const finishRename = () => {
     // Left untouched, the prefilled default name must not become a custom label.
@@ -356,6 +403,7 @@ function PageCard({
 
   return (
     <article
+      ref={cardRef}
       className={`page-card${isDragging ? ' is-dragging' : ''}${isSelected ? ' is-selected' : ''}`}
       tabIndex={0}
       draggable
@@ -445,7 +493,16 @@ function PageCard({
               }}
             />
           ) : (
-            <strong>{page.label || page.sourcePdfName}</strong>
+            <strong
+              className="page-name"
+              title="Double-click to rename"
+              onDoubleClick={(event) => {
+                event.stopPropagation()
+                beginRename()
+              }}
+            >
+              {page.label || page.sourcePdfName}
+            </strong>
           )}
         </div>
         {isRenaming ? (
@@ -462,8 +519,13 @@ function PageCard({
             className="page-rename-button"
             type="button"
             aria-label={`Rename page ${page.pageNumber}`}
+            title="Rename (F2)"
             onPointerDown={(event) => event.stopPropagation()}
-            onClick={beginRename}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              beginRename()
+            }}
           >
             <Pencil size={13} />
           </button>

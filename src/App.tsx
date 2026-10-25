@@ -26,7 +26,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
-import { PageGrid } from './components/page-grid/PageGrid'
+import { PageGrid, RENAME_EVENT } from './components/page-grid/PageGrid'
 import { DocumentInspector } from './components/page-grid/DocumentInspector'
 import { PagePreviewViewer } from './components/page-grid/PagePreviewViewer'
 import { ExportDrawer } from './components/export/ExportDrawer'
@@ -448,6 +448,14 @@ function App() {
     Boolean(contextGroupId) &&
     contextPages.length === pages.filter((page) => page.groupId === contextGroupId).length &&
     contextPages.every((page) => page.groupId === contextGroupId)
+  const renameTarget = contextMenu
+    ? (contextMenu.groupId && contextIsWholeGroup
+        ? document.querySelector<HTMLElement>(`.group-card[data-group-id="${CSS.escape(contextMenu.groupId)}"]`)
+        : null) ??
+      (contextMenu.pageIds.length === 1
+        ? document.querySelector<HTMLElement>(`[data-page-id="${CSS.escape(contextMenu.pageIds[0])}"]:not(.group-card)`)
+        : null)
+    : null
   const canGroupContext = contextPages.length >= 2 && !contextPagesAreOneGroup
   const canUngroupContext = contextPages.some((page) => page.groupId)
   const closeViewer = useCallback(() => setViewerPageId(null), [])
@@ -764,7 +772,9 @@ function App() {
                   </form>
                 ) : (
                   <div className="group-canvas-title">
-                    <h1>{activeGroup.name}</h1>
+                    <h1 title="Double-click to rename" onDoubleClick={startRenamingActiveGroup}>
+                      {activeGroup.name}
+                    </h1>
                     <button
                       type="button"
                       aria-label={`Rename ${activeGroup.name}`}
@@ -910,6 +920,20 @@ function App() {
             >
               <Layers size={15} />
               Ungroup
+            </button>
+          )}
+          {renameTarget && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setContextMenu(null)
+                // Wait for the menu to unmount so the input keeps focus.
+                window.requestAnimationFrame(() => renameTarget.dispatchEvent(new Event(RENAME_EVENT)))
+              }}
+            >
+              <Pencil size={15} />
+              Rename
             </button>
           )}
           <button
