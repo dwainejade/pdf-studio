@@ -2910,3 +2910,163 @@ button.group-count-badge:hover {
   translate: 5px 0;
   rotate: 2deg;
 }
+
+/* ---- Floating action bar: springs up when pages are selected and glides away when they are not. ---- */
+.page-action-toolbar {
+  transform-origin: 50% 100%;
+  animation: action-bar-in 460ms cubic-bezier(0.34, 1.45, 0.64, 1) both;
+  transition: right 320ms var(--ease-out);
+}
+
+.page-action-toolbar.is-leaving {
+  pointer-events: none;
+  animation: action-bar-out 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@keyframes action-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes action-bar-out {
+  to {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+  }
+}
+
+/* Buttons rise in one after another; ones that appear later (Group, Ungroup) pop in on their own. */
+.page-action-toolbar .page-action-button {
+  animation: action-button-in 340ms cubic-bezier(0.34, 1.5, 0.64, 1) both;
+  animation-delay: calc(var(--i, 0) * 38ms + 60ms);
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    transform 150ms var(--ease-out),
+    box-shadow 150ms var(--ease-out);
+}
+
+.page-action-toolbar .page-action-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+}
+
+.page-action-toolbar .page-action-button:active {
+  transform: translateY(0) scale(0.96);
+}
+
+@keyframes action-button-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Icons answer the pointer: rotate turns, the bin tips. */
+.page-action-toolbar .page-action-button svg {
+  transition: transform 280ms var(--ease-out);
+}
+
+.page-action-toolbar .page-action-button:hover .lucide-rotate-cw {
+  transform: rotate(60deg);
+}
+
+.page-action-toolbar .page-action-button:active .lucide-rotate-cw {
+  transform: rotate(180deg);
+}
+
+.page-action-toolbar .page-action-button:hover .lucide-copy {
+  transform: translate(-1px, -1px) scale(1.08);
+}
+
+.page-action-toolbar .page-action-button.destructive:hover .lucide-trash-2 {
+  transform: rotate(-10deg) scale(1.12);
+}
+
+.page-action-toolbar .page-action-button:hover .lucide-file-stack,
+.page-action-toolbar .page-action-button:hover .lucide-layers {
+  transform: translateY(-1px) scale(1.1);
+}
+
+.selection-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 6px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.selection-chip strong {
+  display: inline-block;
+  min-width: 1ch;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  animation: selection-count-pop 320ms cubic-bezier(0.34, 1.6, 0.64, 1);
+}
+
+@keyframes selection-count-pop {
+  from {
+    opacity: 0.4;
+    transform: translateY(6px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.selection-chip-clear {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(var(--fg) / 0.08);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    color 150ms ease,
+    transform 200ms var(--ease-out);
+}
+
+.selection-chip-clear:hover {
+  background: rgb(var(--fg) / 0.16);
+  color: var(--text);
+  transform: rotate(90deg);
+}
+
+.page-action-divider {
+  width: 1px;
+  align-self: stretch;
+  background: rgb(var(--fg) / 0.14);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-action-toolbar,
+  .page-action-toolbar .page-action-button,
+  .selection-chip strong {
+    animation: none;
+  }
+
+  .page-action-toolbar.is-leaving {
+    animation: none;
+    opacity: 0;
+  }
+}

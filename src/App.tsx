@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { groupWithAnimation, removeWithAnimation, ungroupWithAnimation } from './lib/pageAnimations'
 import { useDropzone, type FileRejection } from 'react-dropzone'
 import {
@@ -36,6 +36,7 @@ import { loadPdfPages } from './lib/pdfLoader'
 import { A4_HEIGHT, A4_WIDTH, createBlankPage } from './lib/blankPage'
 import { extractArchive } from './lib/archiveLoader'
 import { mapInOrder } from './lib/concurrency'
+import { usePresence } from './lib/usePresence'
 import { ACCEPTED_FILES, classifyFile, UNSUPPORTED_MESSAGE } from './lib/fileKinds'
 import { loadTiffDocument } from './lib/tiffLoader'
 import { loadImagePage, type ImagePageOrientation } from './lib/imagePdfLoader'
@@ -533,6 +534,12 @@ function App() {
   })
 
   const hasSelection = selectedPageIds.length > 0
+  // The action bar stays mounted briefly after the last page is deselected, so it can animate out.
+  const actionBar = usePresence(hasSelection, 200)
+  // The bar keeps showing its last count while it leaves.
+  const [lastSelectionCount, setLastSelectionCount] = useState(0)
+  if (hasSelection && lastSelectionCount !== selectedPageIds.length) setLastSelectionCount(selectedPageIds.length)
+  const indexed = (index: number) => ({ '--i': index }) as CSSProperties
   const selectedPagesAreOneGroup =
     selectedPages.length > 0 &&
     Boolean(selectedPages[0].groupId) &&
@@ -929,12 +936,32 @@ function App() {
         )}
       </main>
 
-      {hasSelection && (
-        <div className="page-action-toolbar" aria-label="Page actions">
+      {actionBar.mounted && (
+        <div
+          className={`page-action-toolbar${actionBar.leaving ? ' is-leaving' : ''}`}
+          aria-label="Page actions"
+          aria-hidden={actionBar.leaving}
+        >
+          <span className="selection-chip" aria-live="polite">
+            {/* Re-keyed on every change so the number pops. */}
+            <strong key={lastSelectionCount}>{lastSelectionCount}</strong>
+            selected
+            <button
+              type="button"
+              className="selection-chip-clear"
+              aria-label="Clear selection"
+              title="Clear selection (Esc)"
+              onClick={clearSelection}
+            >
+              <X size={13} />
+            </button>
+          </span>
+          <span className="page-action-divider" aria-hidden="true" />
           {canGroupSelection && (
             <button
               type="button"
               className="page-action-button"
+              style={indexed(0)}
               title="Group selected pages (Shift+G)"
               onClick={() => groupPagesWithAnimation(selectedPageIds)}
             >
@@ -946,6 +973,7 @@ function App() {
             <button
               type="button"
               className="page-action-button"
+              style={indexed(1)}
               onClick={() => ungroupPages(selectedPageIds)}
             >
               <Layers size={16} />
@@ -955,6 +983,7 @@ function App() {
           <button
             type="button"
             className="page-action-button"
+            style={indexed(2)}
             onClick={() => duplicateSelection(selectedPageIds)}
           >
             <Copy size={16} />
@@ -963,6 +992,7 @@ function App() {
           <button
             type="button"
             className="page-action-button"
+            style={indexed(3)}
             onClick={() => rotatePages(selectedPageIds, 90)}
           >
             <RotateCw size={16} />
@@ -971,6 +1001,7 @@ function App() {
           <button
             type="button"
             className="page-action-button destructive"
+            style={indexed(4)}
             onClick={() => requestDeletePages(selectedPageIds)}
           >
             <Trash2 size={16} />
