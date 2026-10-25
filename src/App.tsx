@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { groupWithAnimation, ungroupWithAnimation } from './lib/groupAnimation'
 import { useDropzone, type FileRejection } from 'react-dropzone'
 import {
   AlertCircle,
@@ -77,109 +78,16 @@ function App() {
   const rotatePages = usePdfStore((state) => state.rotatePages)
   const renamePage = usePdfStore((state) => state.renamePage)
   const groupPages = usePdfStore((state) => state.groupPages)
-  const groupPagesWithAnimation = useCallback((pageIds: string[]) => {
-    const grid = document.querySelector<HTMLElement>('.page-grid')
-    const pageIdSet = new Set(pageIds)
-    const sourceCards = grid
-      ? Array.from(grid.querySelectorAll<HTMLElement>('[data-page-ids]')).filter((card) =>
-          (card.dataset.pageIds ?? '').split(' ').some((pageId) => pageIdSet.has(pageId)),
-        )
-      : []
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const flyingCards = reducedMotion
-      ? []
-      : sourceCards.map((card) => {
-          const rect = card.getBoundingClientRect()
-          const clone = card.cloneNode(true) as HTMLElement
-          clone.setAttribute('aria-hidden', 'true')
-          clone.inert = true
-          clone.draggable = false
-          clone.tabIndex = -1
-          const sourceCanvases = card.querySelectorAll('canvas')
-          const cloneCanvases = clone.querySelectorAll('canvas')
-          sourceCanvases.forEach((canvas, index) => {
-            const copy = cloneCanvases[index]
-            if (copy) copy.getContext('2d')?.drawImage(canvas, 0, 0)
-          })
-          Object.assign(clone.style, {
-            position: 'fixed',
-            left: `${rect.left}px`,
-            top: `${rect.top}px`,
-            width: `${rect.width}px`,
-            height: `${rect.height}px`,
-            margin: '0',
-            zIndex: '1',
-            pointerEvents: 'none',
-            transformOrigin: 'top left',
-            willChange: 'transform, opacity',
-          })
-          document.body.append(clone)
-          return { clone, rect }
-        })
-
-    if (flyingCards.length > 0 && grid) grid.style.zIndex = '2'
-    groupPages(pageIds)
-    if (flyingCards.length === 0) return
-    window.requestAnimationFrame(() => {
-      const target = Array.from(
-        document.querySelectorAll<HTMLElement>('.page-grid .group-card'),
-      ).find((card) => {
-        const targetIds = (card.dataset.pageIds ?? '').split(' ')
-        return targetIds.length === pageIdSet.size && targetIds.every((id) => pageIdSet.has(id))
-      })
-      if (!target) {
-        flyingCards.forEach(({ clone }) => clone.remove())
-        grid?.style.removeProperty('z-index')
-        return
-      }
-      const targetRect = target.getBoundingClientRect()
-      let longestFlight = 0
-      flyingCards.forEach(({ clone, rect }, index) => {
-        const duration = 620 + Math.min(index, 5) * 55
-        const delay = Math.min(index, 5) * 45
-        longestFlight = Math.max(longestFlight, duration + delay)
-        const animation = clone.animate(
-          [
-            { transform: 'translate(0, 0) scale(1)', opacity: 1, filter: 'blur(0)' },
-            {
-              transform: `translate(${targetRect.left - rect.left}px, ${targetRect.top - rect.top}px) scale(${targetRect.width / rect.width}, ${targetRect.height / rect.height})`,
-              opacity: 0.8,
-              filter: 'blur(0)',
-              offset: 0.68,
-            },
-            {
-              transform: `translate(${targetRect.left - rect.left + targetRect.width * 0.32}px, ${targetRect.top - rect.top + targetRect.height * 0.32}px) scale(0.28)`,
-              opacity: 0,
-              filter: 'blur(2px)',
-            },
-          ],
-          {
-            duration,
-            delay,
-            easing: 'cubic-bezier(0.22, 0.75, 0.25, 1)',
-            fill: 'forwards',
-          },
-        )
-        animation.onfinish = () => clone.remove()
-      })
-      const settleAnimation = target.animate(
-        [
-          { transform: 'scale(0.94)', boxShadow: '0 0 0 rgba(158, 135, 255, 0)' },
-          { transform: 'scale(1.035)', boxShadow: '0 0 34px rgba(158, 135, 255, 0.48)', offset: 0.55 },
-          { transform: 'scale(1)', boxShadow: '0 0 0 rgba(158, 135, 255, 0)' },
-        ],
-        { duration: 560, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' },
-      )
-      settleAnimation.onfinish = () => {
-        if (longestFlight <= 560) grid?.style.removeProperty('z-index')
-      }
-      if (longestFlight > 560) {
-        window.setTimeout(() => grid?.style.removeProperty('z-index'), longestFlight)
-      }
-    })
-  }, [groupPages])
+  const groupPagesWithAnimation = useCallback(
+    (pageIds: string[]) => groupWithAnimation(pageIds, () => groupPages(pageIds)),
+    [groupPages],
+  )
   const renameGroup = usePdfStore((state) => state.renameGroup)
-  const ungroupPages = usePdfStore((state) => state.ungroupPages)
+  const ungroupPagesInStore = usePdfStore((state) => state.ungroupPages)
+  const ungroupPages = useCallback(
+    (pageIds: string[]) => ungroupWithAnimation(pageIds, () => ungroupPagesInStore(pageIds)),
+    [ungroupPagesInStore],
+  )
   const undo = usePdfStore((state) => state.undo)
   const redo = usePdfStore((state) => state.redo)
   const thumbnailSize = useViewPreferences((state) => state.thumbnailSize)

@@ -2065,9 +2065,10 @@
 
 .group-preview-stack {
   position: relative;
-  width: calc(100% - 24px);
-  height: calc(max(170px, var(--page-preview-height, 224px)) - 24px);
-  margin: 12px auto;
+  /* same box as a single page's preview, so the cover is exactly where the page was */
+  width: 100%;
+  height: max(170px, var(--page-preview-height, 224px));
+  margin: 0 auto;
 }
 
 .group-preview-sheet {
