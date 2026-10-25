@@ -26,6 +26,7 @@ interface PdfStore extends StoreSnapshot {
   renamePage: (pageId: string, label: string) => void
   setPageTextBoxes: (pageId: string, textBoxes: PageTextBox[]) => void
   groupPages: (pageIds: string[]) => void
+  addPagesToGroup: (pageIds: string[], groupId: string) => void
   renameGroup: (groupId: string, name: string) => void
   ungroupPages: (pageIds: string[]) => void
   undo: () => void
@@ -296,6 +297,25 @@ export const usePdfStore = create<PdfStore>((set, get) => {
       const groups = current.groups.filter((group) => remainingGroupIds.has(group.id))
       groups.push({ id, name: `Group ${groupNumber}` })
       commit({ ...snapshot(current), pages, groups, nextGroupNumber: groupNumber })
+    },
+    // Loose pages join an existing group, landing right after its last page. Pages already in a group stay where they are.
+    addPagesToGroup: (pageIds, groupId) => {
+      const current = get()
+      const wanted = new Set(pageIds)
+      const moving = current.pages.filter((page) => wanted.has(page.id) && !page.groupId)
+      if (moving.length === 0 || !current.groups.some((group) => group.id === groupId)) return
+      const movingIds = new Set(moving.map((page) => page.id))
+      const rest = current.pages.filter((page) => !movingIds.has(page.id))
+      let lastMember = -1
+      rest.forEach((page, index) => {
+        if (page.groupId === groupId) lastMember = index
+      })
+      if (lastMember < 0) return
+      const joined = moving.map((page) => ({ ...page, groupId }))
+      commit({
+        ...snapshot(current),
+        pages: [...rest.slice(0, lastMember + 1), ...joined, ...rest.slice(lastMember + 1)],
+      })
     },
     renameGroup: (groupId, name) => {
       const normalizedName = name.trim()

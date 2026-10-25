@@ -2430,11 +2430,54 @@
   box-shadow: 0 0 12px rgba(159, 136, 255, 0.9);
   opacity: 0;
   pointer-events: none;
+  /* Hidden, the bar only fades: it must not fly in from wherever it last was. */
+  transition: opacity 120ms ease;
+}
+
+.drop-indicator.is-visible {
+  opacity: 1;
   transition:
-    transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    width 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    height 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 240ms cubic-bezier(0.34, 1.4, 0.64, 1),
+    width 240ms var(--ease-out),
+    height 240ms var(--ease-out),
     opacity 120ms ease;
+}
+
+/* Contents of the cards beside the drop bar step aside; see NUDGE_PX in PageGrid. */
+.page-grid.view-grid .page-card > .page-preview {
+  transition:
+    box-shadow 180ms var(--ease-out),
+    border-color 180ms var(--ease-out),
+    background 180ms var(--ease-out),
+    translate 200ms var(--ease-out);
+}
+
+.page-grid.view-grid .page-card > .page-metadata {
+  transition: translate 200ms var(--ease-out);
+}
+
+/* The picture the browser shows under the pointer while a page is dragged: tilted, lifted, with a count for several. */
+.drag-ghost .page-card {
+  opacity: 0.97;
+  transform: rotate(3deg) scale(1.03);
+  filter: drop-shadow(0 22px 20px rgba(0, 0, 0, 0.4)) drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3));
+}
+
+.drag-count-badge {
+  position: absolute;
+  top: 26px;
+  right: 26px;
+  display: grid;
+  min-width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
 }
 
 .page-card.is-dragging {
@@ -2772,4 +2815,258 @@ button.group-count-badge:hover {
 
 .export-success {
   color: var(--success-text);
+}
+
+/* While a page is dragged, its slot shows an empty outline so the grid does not look like it has a hole. */
+.page-grid.view-grid .page-card.is-dragging {
+  opacity: 1;
+}
+
+.page-grid.view-grid .page-card.is-dragging > .page-preview {
+  border: 1.5px dashed rgb(var(--fg) / 0.28);
+  background:
+    linear-gradient(100deg, transparent 30%, rgb(var(--fg) / 0.1) 50%, transparent 70%) 0 0 / 220% 100% no-repeat,
+    rgb(var(--fg) / 0.04);
+  animation: thumbnail-shimmer 1.6s ease-in-out infinite;
+}
+
+.page-grid.view-grid .page-card.is-dragging > .page-preview > *,
+.page-grid.view-grid .page-card.is-dragging > .page-metadata {
+  opacity: 0.12;
+}
+
+/* A dragged group leaves the same outline where its whole stack was. */
+.page-grid.view-grid .group-card.is-dragging > .group-preview-stack {
+  border-radius: var(--radius-card);
+  outline: 1.5px dashed rgb(var(--fg) / 0.28);
+  outline-offset: -1.5px;
+  background:
+    linear-gradient(100deg, transparent 30%, rgb(var(--fg) / 0.1) 50%, transparent 70%) 0 0 / 220% 100% no-repeat,
+    rgb(var(--fg) / 0.04);
+  animation: thumbnail-shimmer 1.6s ease-in-out infinite;
+}
+
+.page-grid.view-grid .group-card.is-dragging > .group-preview-stack > * {
+  opacity: 0.12;
+}
+
+.page-grid.view-grid .group-card.is-dragging > .group-preview-stack > .group-preview-sheet {
+  opacity: 0;
+}
+
+.page-grid.view-grid .page-card.is-dragging > .page-select-toggle {
+  opacity: 0;
+}
+
+.drag-skeleton-ghost {
+  box-sizing: border-box;
+  border: 1.5px dashed rgb(var(--fg) / 0.28);
+  border-radius: var(--radius-card);
+  background: rgb(var(--fg) / 0.05);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-grid.view-grid .page-card.is-dragging > .page-preview,
+  .page-grid.view-grid .group-card.is-dragging > .group-preview-stack {
+    animation: none;
+  }
+}
+
+/* A page is over the middle of a group: the stack opens and glows to say it will be added. */
+.page-grid.view-grid .group-card.is-drop-target > .group-preview-stack {
+  border-radius: var(--radius-card);
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  background: var(--accent-soft);
+  box-shadow: 0 0 24px rgba(159, 136, 255, 0.45);
+  transition:
+    outline-color 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out),
+    background 160ms var(--ease-out);
+}
+
+.group-preview-sheet {
+  transition:
+    translate 220ms var(--ease-out),
+    rotate 220ms var(--ease-out);
+}
+
+.page-grid.view-grid .group-card.is-drop-target .group-preview-sheet-layer-1 {
+  translate: -10px 2px;
+  rotate: -5deg;
+}
+
+.page-grid.view-grid .group-card.is-drop-target .group-preview-sheet-layer-2 {
+  translate: 10px 1px;
+  rotate: 4deg;
+}
+
+.page-grid.view-grid .group-card.is-drop-target .group-preview-sheet-layer-3 {
+  translate: -5px 0;
+  rotate: -3deg;
+}
+
+.page-grid.view-grid .group-card.is-drop-target .group-preview-sheet-layer-4 {
+  translate: 5px 0;
+  rotate: 2deg;
+}
+
+/* ---- Floating action bar: springs up when pages are selected and glides away when they are not. ---- */
+.page-action-toolbar {
+  transform-origin: 50% 100%;
+  animation: action-bar-in 460ms cubic-bezier(0.34, 1.45, 0.64, 1) both;
+  transition: right 320ms var(--ease-out);
+}
+
+.page-action-toolbar.is-leaving {
+  pointer-events: none;
+  animation: action-bar-out 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@keyframes action-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes action-bar-out {
+  to {
+    opacity: 0;
+    transform: translateY(18px) scale(0.96);
+  }
+}
+
+/* Buttons rise in one after another; ones that appear later (Group, Ungroup) pop in on their own. */
+.page-action-toolbar .page-action-button {
+  animation: action-button-in 340ms cubic-bezier(0.34, 1.5, 0.64, 1) both;
+  animation-delay: calc(var(--i, 0) * 38ms + 60ms);
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    transform 150ms var(--ease-out),
+    box-shadow 150ms var(--ease-out);
+}
+
+.page-action-toolbar .page-action-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+}
+
+.page-action-toolbar .page-action-button:active {
+  transform: translateY(0) scale(0.96);
+}
+
+@keyframes action-button-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Icons answer the pointer: rotate turns, the bin tips. */
+.page-action-toolbar .page-action-button svg {
+  transition: transform 280ms var(--ease-out);
+}
+
+.page-action-toolbar .page-action-button:hover .lucide-rotate-cw {
+  transform: rotate(60deg);
+}
+
+.page-action-toolbar .page-action-button:active .lucide-rotate-cw {
+  transform: rotate(180deg);
+}
+
+.page-action-toolbar .page-action-button:hover .lucide-copy {
+  transform: translate(-1px, -1px) scale(1.08);
+}
+
+.page-action-toolbar .page-action-button.destructive:hover .lucide-trash-2 {
+  transform: rotate(-10deg) scale(1.12);
+}
+
+.page-action-toolbar .page-action-button:hover .lucide-file-stack,
+.page-action-toolbar .page-action-button:hover .lucide-layers {
+  transform: translateY(-1px) scale(1.1);
+}
+
+.selection-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 6px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.selection-chip strong {
+  display: inline-block;
+  min-width: 1ch;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  animation: selection-count-pop 320ms cubic-bezier(0.34, 1.6, 0.64, 1);
+}
+
+@keyframes selection-count-pop {
+  from {
+    opacity: 0.4;
+    transform: translateY(6px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.selection-chip-clear {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(var(--fg) / 0.08);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    color 150ms ease,
+    transform 200ms var(--ease-out);
+}
+
+.selection-chip-clear:hover {
+  background: rgb(var(--fg) / 0.16);
+  color: var(--text);
+  transform: rotate(90deg);
+}
+
+.page-action-divider {
+  width: 1px;
+  align-self: stretch;
+  background: rgb(var(--fg) / 0.14);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-action-toolbar,
+  .page-action-toolbar .page-action-button,
+  .selection-chip strong {
+    animation: none;
+  }
+
+  .page-action-toolbar.is-leaving {
+    animation: none;
+    opacity: 0;
+  }
 }
