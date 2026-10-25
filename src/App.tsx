@@ -11,10 +11,15 @@ import {
   FileText,
   Info,
   Layers,
+  LockKeyhole,
+  Monitor,
+  Moon,
   Pencil,
+  Plus,
   Redo2,
   RotateCw,
   Search,
+  Sun,
   Trash2,
   Undo2,
   X,
@@ -90,6 +95,8 @@ function App() {
   )
   const undo = usePdfStore((state) => state.undo)
   const redo = usePdfStore((state) => state.redo)
+  const theme = useViewPreferences((state) => state.theme)
+  const setTheme = useViewPreferences((state) => state.setTheme)
   const thumbnailSize = useViewPreferences((state) => state.thumbnailSize)
   const searchQuery = useViewPreferences((state) => state.searchQuery)
   const setThumbnailSize = useViewPreferences((state) => state.setThumbnailSize)
@@ -404,6 +411,11 @@ function App() {
     },
     [handleFiles, handleRejected],
   )
+  useEffect(() => {
+    if (theme === 'system') delete document.documentElement.dataset.theme
+    else document.documentElement.dataset.theme = theme
+  }, [theme])
+
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
     accept: {
@@ -557,17 +569,18 @@ function App() {
               className="workspace-action-button add-files-button"
               type="button"
               disabled={!isWorkspaceReady}
+              title="Add PDFs or images"
               onClick={open}
             >
-              <FileText size={15} />
-              Add PDFs or Images
+              <Plus size={16} />
+              Add files
             </button>
             <div className="toolbar-search">
               <Search size={15} aria-hidden="true" />
               <input
                 type="search"
                 aria-label="Search pages by label, source, page number, or PDF metadata"
-                placeholder="Search pages and metadata"
+                placeholder="Search pages"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
               />
@@ -605,6 +618,15 @@ function App() {
               {allPagesSelected ? 'Deselect All' : 'Select All'}
             </button>}
             <button
+              className="workspace-action-icon"
+              type="button"
+              aria-label={`Theme: ${theme}. Switch theme`}
+              title={`Theme: ${theme}`}
+              onClick={() => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}
+            >
+              {theme === 'system' ? <Monitor size={16} /> : theme === 'light' ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+            <button
               className={`workspace-action-icon${isInspectorOpen ? ' is-active' : ''}`}
               type="button"
               aria-label="Toggle inspector"
@@ -614,12 +636,14 @@ function App() {
             >
               <Info size={16} />
             </button>
-            <button className="workspace-action-icon" type="button" aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" disabled={!canUndo} onClick={undo}>
-              <Undo2 size={16} />
-            </button>
-            <button className="workspace-action-icon" type="button" aria-label="Redo" title="Redo (Ctrl/Cmd+Y)" disabled={!canRedo} onClick={redo}>
-              <Redo2 size={16} />
-            </button>
+            <div className="workspace-segmented" role="group" aria-label="History">
+              <button className="workspace-action-icon" type="button" aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" disabled={!canUndo} onClick={undo}>
+                <Undo2 size={16} />
+              </button>
+              <button className="workspace-action-icon" type="button" aria-label="Redo" title="Redo (Ctrl/Cmd+Y)" disabled={!canRedo} onClick={redo}>
+                <Redo2 size={16} />
+              </button>
+            </div>
             <button
               className="workspace-action-button export-open-button"
               type="button"
@@ -670,7 +694,37 @@ function App() {
 
         {!activeGroup && pages.length === 0 && processingCount === 0 ? (
           <div className="canvas-empty-hint">
-            <span>Drop PDFs or images anywhere to get started</span>
+            <div className="empty-state">
+              <div className="empty-stack" aria-hidden="true">
+                <span className="empty-sheet empty-sheet-3" />
+                <span className="empty-sheet empty-sheet-2" />
+                <span className="empty-sheet empty-sheet-1">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              </div>
+              <h2>Drop PDFs or images to get started</h2>
+              <p>Reorder, rotate, group, and merge pages, then export exactly what you need.</p>
+              <button
+                className="empty-state-button"
+                type="button"
+                disabled={!isWorkspaceReady}
+                onClick={open}
+              >
+                <Plus size={17} />
+                Choose files
+              </button>
+              <div className="empty-state-formats" aria-label="Supported formats">
+                <span>PDF</span>
+                <span>JPG</span>
+                <span>PNG</span>
+              </div>
+              <div className="empty-state-privacy">
+                <LockKeyhole size={13} aria-hidden="true" />
+                Files stay on this device
+              </div>
+            </div>
           </div>
         ) : (
           <>

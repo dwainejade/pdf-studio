@@ -1,5 +1,26 @@
 :root {
   /* Design tokens */
+  /* Semantic tokens: dark is the default; light overrides below. */
+  --fg: 255 255 255;
+  --text: #e7e5ec;
+  --text-muted: #b4b0c0;
+  --text-faint: #8f8b9b;
+  --accent-text: #d4ccff;
+  --danger-text: #ffc9c9;
+  --bg-a: #24252b;
+  --bg-b: #303139;
+  --bg-c: #1e2026;
+  --dot: rgba(210, 207, 222, 0.12);
+  --dot-drag: rgba(196, 183, 255, 0.18);
+  --surface-overlay: rgba(37, 37, 45, 0.97);
+  --surface-bar: rgba(26, 27, 33, 0.78);
+  --field: rgba(0, 0, 0, 0.2);
+  --control-bg: rgba(24, 22, 34, 0.5);
+  --control-border: rgba(255, 255, 255, 0.85);
+  --control-fg: #fff;
+  --success-text: #9bc2a1;
+  --surface-dialog: #25242d;
+  --surface-input: #1b1c22;
   --font-sans: 'Inter', system-ui, -apple-system, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
   --accent: #9f88ff;
   --accent-strong: #735fe7;
@@ -15,8 +36,9 @@
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 
   font-family: var(--font-sans);
-  color: #302d40;
-  background: #fbfaf8;
+  color: var(--text);
+  background: var(--bg-c);
+  color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -26,6 +48,86 @@
   font-weight: 400;
   font-feature-settings: 'cv11', 'ss01';
   letter-spacing: -0.005em;
+}
+
+:root[data-theme='light'] {
+  --fg: 30 27 46;
+  --text: #25222f;
+  --text-muted: #5b5769;
+  --text-faint: #7d7989;
+  --accent-text: #5b46c8;
+  --danger-text: #b3261e;
+  --bg-a: #f4f3f9;
+  --bg-b: #fbfaff;
+  --bg-c: #eceaf3;
+  --dot: rgba(60, 52, 100, 0.1);
+  --dot-drag: rgba(115, 95, 231, 0.2);
+  --surface-overlay: rgba(255, 255, 255, 0.97);
+  --surface-bar: rgba(250, 249, 253, 0.8);
+  --field: rgba(30, 27, 46, 0.06);
+  --control-bg: rgba(255, 255, 255, 0.92);
+  --control-border: rgba(30, 27, 46, 0.3);
+  --control-fg: #2b2740;
+  --success-text: #2f7a46;
+  --surface-dialog: #ffffff;
+  --surface-input: #ffffff;
+  --surface-preview: #e4e2ec;
+  --accent-soft: rgba(115, 95, 231, 0.14);
+  --shadow-card: 0 1px 2px rgba(30, 27, 46, 0.08), 0 6px 18px rgba(30, 27, 46, 0.1);
+  --shadow-card-hover: 0 2px 4px rgba(30, 27, 46, 0.1), 0 16px 34px rgba(30, 27, 46, 0.16);
+  --shadow-page: 0 1px 3px rgba(30, 27, 46, 0.22), 0 6px 16px rgba(30, 27, 46, 0.16);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --fg: 30 27 46;
+    --text: #25222f;
+    --text-muted: #5b5769;
+    --text-faint: #7d7989;
+    --accent-text: #5b46c8;
+    --danger-text: #b3261e;
+    --bg-a: #f4f3f9;
+    --bg-b: #fbfaff;
+    --bg-c: #eceaf3;
+    --dot: rgba(60, 52, 100, 0.1);
+    --dot-drag: rgba(115, 95, 231, 0.2);
+    --surface-overlay: rgba(255, 255, 255, 0.97);
+    --surface-bar: rgba(250, 249, 253, 0.8);
+    --field: rgba(30, 27, 46, 0.06);
+    --control-bg: rgba(255, 255, 255, 0.92);
+    --control-border: rgba(30, 27, 46, 0.3);
+    --control-fg: #2b2740;
+    --success-text: #2f7a46;
+    --surface-dialog: #ffffff;
+    --surface-input: #ffffff;
+    --surface-preview: #e4e2ec;
+    --accent-soft: rgba(115, 95, 231, 0.14);
+    --shadow-card: 0 1px 2px rgba(30, 27, 46, 0.08), 0 6px 18px rgba(30, 27, 46, 0.1);
+    --shadow-card-hover: 0 2px 4px rgba(30, 27, 46, 0.1), 0 16px 34px rgba(30, 27, 46, 0.16);
+    --shadow-page: 0 1px 3px rgba(30, 27, 46, 0.22), 0 6px 16px rgba(30, 27, 46, 0.16);
+    color-scheme: light;
+  }
+}
+
+/* The page viewer and floating action bar are dark surfaces in either theme. */
+.page-viewer,
+.page-action-toolbar {
+  --fg: 255 255 255;
+  --text: #e7e5ec;
+  --text-muted: #b4b0c0;
+  --text-faint: #8f8b9b;
+  --accent-text: #d4ccff;
+  --danger-text: #ffc9c9;
+  --surface-overlay: rgba(37, 37, 45, 0.97);
+  --field: rgba(0, 0, 0, 0.2);
+  --control-bg: rgba(24, 22, 34, 0.5);
+  --control-border: rgba(255, 255, 255, 0.85);
+  --control-fg: #fff;
+  --success-text: #9bc2a1;
+  --surface-dialog: #25242d;
+  --surface-input: #1b1c22;
+  color-scheme: dark;
 }
 
 * {

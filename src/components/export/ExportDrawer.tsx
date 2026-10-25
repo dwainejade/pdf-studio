@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { FolderOpen, Printer, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { ArrowDownToLine, FolderOpen, Printer, X } from 'lucide-react'
 import type { PageGroup, PdfPage, UploadedPdf } from '../../types/pdf'
 import {
   canChooseExportDirectory,
@@ -37,6 +37,25 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
   const [isPrinting, setIsPrinting] = useState(false)
   const selectedPages = useMemo(() => new Set(pages.map((page) => page.id)), [pages])
   const canPickFolder = canChooseExportDirectory()
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+
+  const groupedIds = new Set(
+    pages.filter((page) => page.groupId && groups.some((group) => group.id === page.groupId)).map((page) => page.groupId),
+  )
+  const ungroupedCount = pages.filter((page) => !page.groupId).length
+  const outputSummary =
+    mode === 'merged'
+      ? `1 file: ${mergedFilename(filename)} (${pages.length} ${pages.length === 1 ? 'page' : 'pages'})`
+      : mode === 'groups'
+        ? `${groupedIds.size + ungroupedCount} files: ${groupedIds.size} ${groupedIds.size === 1 ? 'group' : 'groups'}${ungroupedCount > 0 ? ` and ${ungroupedCount} separate ${ungroupedCount === 1 ? 'page' : 'pages'}` : ''}`
+        : `${pages.length} ${pages.length === 1 ? 'file' : 'files'}, one page each`
 
   const selectFolder = async () => {
     setError(undefined)
@@ -190,6 +209,11 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
           )}
         </div>
 
+        <p className="export-summary">
+          <span>Will create</span>
+          {outputSummary}
+        </p>
+
         {error && <p className="export-error" role="alert">{error}</p>}
         {printError && <p className="export-error" role="alert">{printError}</p>}
         <div className="export-actions">
@@ -208,6 +232,7 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
             disabled={pages.length === 0 || isExporting || (mode === 'merged' && !filename.trim())}
             onClick={() => void exportFiles()}
           >
+            {!isExporting && <ArrowDownToLine size={16} />}
             {isExporting
               ? 'Preparing export…'
               : mode === 'merged'
