@@ -1,5 +1,20 @@
 :root {
-  font-family: 'Segoe UI', Arial, sans-serif;
+  /* Design tokens */
+  --font-sans: 'Inter', system-ui, -apple-system, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+  --accent: #9f88ff;
+  --accent-strong: #735fe7;
+  --accent-soft: rgba(159, 136, 255, 0.22);
+  --accent-ring: rgba(159, 136, 255, 0.55);
+  --surface-card: #f8f7f8;
+  --surface-preview: #1f2026;
+  --radius-card: 14px;
+  --radius-control: 8px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25), 0 6px 18px rgba(0, 0, 0, 0.22);
+  --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.28), 0 16px 34px rgba(0, 0, 0, 0.34);
+  --shadow-page: 0 1px 3px rgba(0, 0, 0, 0.35), 0 6px 16px rgba(0, 0, 0, 0.3);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  font-family: var(--font-sans);
   color: #302d40;
   background: #fbfaf8;
   font-synthesis: none;
@@ -9,6 +24,8 @@
 
   font-optical-sizing: auto;
   font-weight: 400;
+  font-feature-settings: 'cv11', 'ss01';
+  letter-spacing: -0.005em;
 }
 
 * {
@@ -34,7 +51,14 @@ input:focus-visible {
 
 h1,
 h2 {
-  font-family: 'Segoe UI', Arial, sans-serif;
+  font-family: var(--font-sans);
+  letter-spacing: -0.02em;
+}
+
+.page-number,
+.status-text,
+.page-viewer-zoom-level {
+  font-variant-numeric: tabular-nums;
 }
 
 ::selection {

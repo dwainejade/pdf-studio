@@ -415,17 +415,18 @@
 .page-card {
   position: relative;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  background: #f8f7f8;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.19);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-card);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-card);
   cursor: grab;
   touch-action: none;
   content-visibility: auto;
   contain-intrinsic-size: auto 320px;
   transition:
-    box-shadow 150ms ease,
-    border-color 150ms ease;
+    box-shadow 180ms var(--ease-out),
+    border-color 180ms var(--ease-out),
+    transform 180ms var(--ease-out);
 }
 
 .page-card:focus-visible {
@@ -434,8 +435,9 @@
 }
 
 .page-card:hover {
-  border-color: rgba(195, 181, 255, 0.5);
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.27);
+  border-color: rgba(195, 181, 255, 0.45);
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-2px);
 }
 
 .page-card:active {
@@ -450,10 +452,11 @@
 }
 
 .page-card.is-selected {
-  border-color: #9f88ff;
+  border-color: var(--accent);
   box-shadow:
-    0 0 0 2px #9f88ff,
-    0 14px 30px rgba(0, 0, 0, 0.25);
+    0 0 0 2px var(--accent),
+    0 0 0 6px var(--accent-soft),
+    var(--shadow-card-hover);
 }
 
 .page-select-toggle {
@@ -465,17 +468,33 @@
   width: 22px;
   height: 22px;
   place-items: center;
-  border: 1px solid rgba(26, 19, 44, 0.35);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.9);
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  border-radius: 7px;
+  background: rgba(24, 22, 34, 0.45);
   color: #fff;
   cursor: pointer;
-  box-shadow: 0 8px 14px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  opacity: 0.85;
+  transition:
+    background 140ms var(--ease-out),
+    border-color 140ms var(--ease-out),
+    transform 140ms var(--ease-out),
+    opacity 140ms var(--ease-out);
+}
+
+.page-card:hover .page-select-toggle {
+  opacity: 1;
+}
+
+.page-select-toggle:hover {
+  transform: scale(1.08);
 }
 
 .page-select-toggle.is-selected {
-  border-color: #735fe7;
-  background: #735fe7;
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+  opacity: 1;
 }
 
 .page-select-check {
@@ -490,7 +509,9 @@
   height: max(170px, var(--page-preview-height, 224px));
   padding: 0;
   place-items: center;
-  background: #e8e6e8;
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.06), transparent 60%),
+    var(--surface-preview);
   overflow: hidden;
 }
 
@@ -499,25 +520,53 @@
   flex: none;
   transition: transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
   object-fit: contain;
-  border-radius: 0;
+  border-radius: 2px;
   background: #fff;
+  box-shadow: var(--shadow-page);
+  /* Individual `scale` composes with the rotate transform set inline, leaving a margin around the page. */
+  scale: 0.9;
   image-rendering: auto;
 }
 
 .thumbnail-loading {
-  width: 26px;
-  height: 26px;
-  border: 2px solid rgba(97, 86, 133, 0.18);
-  border-top-color: #8876cf;
-  border-radius: 50%;
-  animation: spin 800ms linear infinite;
+  width: min(58%, 130px);
+  aspect-ratio: 0.77;
+  border-radius: 3px;
+  background: linear-gradient(
+      100deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.14) 50%,
+      transparent 70%
+    )
+    0 0 / 220% 100% no-repeat,
+    rgba(255, 255, 255, 0.07);
+  animation: thumbnail-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes thumbnail-shimmer {
+  from {
+    background-position: 130% 0, 0 0;
+  }
+  to {
+    background-position: -30% 0, 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thumbnail-loading {
+    animation: none;
+  }
+  .page-card:hover,
+  .page-grid.view-grid .page-card:hover .page-preview {
+    transform: none;
+  }
 }
 
 .thumbnail-error {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: #77717f;
+  color: #b3aebf;
   font-size: 10px;
 }
 
@@ -560,13 +609,14 @@
   width: 26px;
   height: 26px;
   place-items: center;
-  border: 1px solid rgba(26, 19, 44, 0.3);
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.92);
-  color: #3b3552;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(24, 22, 34, 0.55);
+  color: #fff;
   cursor: pointer;
   opacity: 0;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   transition:
     opacity 120ms ease,
     background 120ms ease;
@@ -578,8 +628,8 @@
 }
 
 .page-expand-button:hover {
-  background: #fff;
-  color: #5b46c8;
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
 }
 
 @media (hover: none) {
@@ -2003,12 +2053,17 @@
 }
 
 .page-grid.view-grid .page-preview {
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.19);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
   transition:
-    box-shadow 150ms ease,
-    border-color 150ms ease;
+    box-shadow 180ms var(--ease-out),
+    border-color 180ms var(--ease-out),
+    transform 180ms var(--ease-out);
+}
+
+.page-grid.view-grid .page-card:hover {
+  transform: none;
 }
 
 .group-preview-stack {
@@ -2129,15 +2184,20 @@ button.group-count-badge:hover {
 }
 
 .page-grid.view-grid .page-card:hover .page-preview {
-  border-color: rgba(195, 181, 255, 0.5);
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.27);
+  border-color: rgba(195, 181, 255, 0.45);
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-2px);
 }
 
 .page-grid.view-grid .page-card.is-selected .page-preview {
-  border-color: #9f88ff;
+  border-color: var(--accent);
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(159, 136, 255, 0.18), transparent 65%),
+    var(--surface-preview);
   box-shadow:
-    0 0 0 2px #9f88ff,
-    0 14px 30px rgba(0, 0, 0, 0.25);
+    0 0 0 2px var(--accent),
+    0 0 0 6px var(--accent-soft),
+    var(--shadow-card-hover);
 }
 
 .page-grid.view-grid .page-metadata {
