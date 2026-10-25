@@ -4,6 +4,7 @@ import { Check, ChevronLeft, ChevronRight, Minus, Pencil, Plus, RotateCcw, Rotat
 import { TextLayer } from 'pdfjs-dist'
 import type { PageTextBox, PdfPage, UploadedPdf } from '../../types/pdf'
 import { PageTextEditor } from './PageTextOverlay'
+import { displayName } from '../../lib/displayName'
 import { DEFAULT_TEXT_SIZE, frameLayout, MAX_TEXT_SIZE, MIN_TEXT_SIZE, normalizeDegrees, rotateAboutCentre, TEXT_COLORS } from '../../lib/pageText'
 import {
   loadFullPageTextLayer,
@@ -275,14 +276,14 @@ export function PagePreviewViewer({
 
   const beginRename = () => {
     if (!page) return
-    setDraftLabel(page.label || page.sourcePdfName)
+    setDraftLabel(page.label || displayName(page.sourcePdfName))
     setEditingPageId(page.id)
   }
 
   const finishRename = () => {
     if (!page) return
     const label = draftLabel.trim()
-    onRename(page.id, !page.label && label === page.sourcePdfName ? '' : label)
+    onRename(page.id, !page.label && label === displayName(page.sourcePdfName) ? '' : label)
     setEditingPageId(null)
   }
 
@@ -517,7 +518,7 @@ export function PagePreviewViewer({
       className="page-viewer"
       role="dialog"
       aria-modal="true"
-      aria-label={`Page ${page.pageNumber} of ${page.label || page.sourcePdfName}, full view`}
+      aria-label={`Page ${page.pageNumber} of ${page.label || displayName(page.sourcePdfName)}, full view`}
       tabIndex={-1}
     >
       <header className="page-viewer-bar">
@@ -560,7 +561,7 @@ export function PagePreviewViewer({
               </>
             ) : (
               <>
-                <strong>{page.label || page.sourcePdfName}</strong>
+                <strong>{page.label || displayName(page.sourcePdfName)}</strong>
                 <button
                   type="button"
                   className="page-viewer-rename-button"

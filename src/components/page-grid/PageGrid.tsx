@@ -14,6 +14,7 @@ import { Check, FileText, Layers, Minus, Pencil, X } from 'lucide-react'
 import type { PageGroup, PdfPage, UploadedPdf } from '../../types/pdf'
 import { PageThumbnail } from './PageThumbnail'
 import { useGridWindow } from './useGridWindow'
+import { displayName } from '../../lib/displayName'
 import {
   prepareDragOut,
   prepareDragOutFiles,
@@ -377,14 +378,14 @@ function PageCard({
   }
 
   const beginRename = () => {
-    setDraftLabel(page.label || page.sourcePdfName)
+    setDraftLabel(page.label || displayName(page.sourcePdfName))
     setIsRenaming(true)
   }
   const cardRef = useRenameRequest(beginRename)
 
   const finishRename = () => {
     // Left untouched, the prefilled default name must not become a custom label.
-    const label = !page.label && draftLabel.trim() === page.sourcePdfName ? '' : draftLabel.trim()
+    const label = !page.label && draftLabel.trim() === displayName(page.sourcePdfName) ? '' : draftLabel.trim()
     onRename(page.id, label)
     const dragPages = getDragPages(page.id)
     if (dragPages.length === 1) {
@@ -437,7 +438,7 @@ function PageCard({
       }}
       data-page-id={page.id}
       data-page-ids={page.id}
-      aria-label={`Page ${page.pageNumber} from ${page.sourcePdfName}${isSelected ? ', selected' : ''}. Use arrow keys to reorder.`}
+      aria-label={`Page ${page.pageNumber} from ${displayName(page.sourcePdfName)}${isSelected ? ', selected' : ''}. Use arrow keys to reorder.`}
     >
       <button
         type="button"
@@ -504,7 +505,7 @@ function PageCard({
                 beginRename()
               }}
             >
-              {page.label || page.sourcePdfName}
+              {page.label || displayName(page.sourcePdfName)}
             </strong>
           )}
         </div>
