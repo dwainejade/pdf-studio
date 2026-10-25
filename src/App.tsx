@@ -100,6 +100,7 @@ function App() {
   const renamePage = usePdfStore((state) => state.renamePage)
   const setPageTextBoxes = usePdfStore((state) => state.setPageTextBoxes)
   const groupPages = usePdfStore((state) => state.groupPages)
+  const addPagesToGroup = usePdfStore((state) => state.addPagesToGroup)
   const groupPagesWithAnimation = useCallback(
     (pageIds: string[]) => groupWithAnimation(pageIds, () => groupPages(pageIds)),
     [groupPages],
@@ -922,6 +923,7 @@ function App() {
               groupCanvasName={activeGroup?.name}
               onUngroupPage={activeGroup ? ungroupPageFromCanvas : undefined}
               animateArrivals={isWorkspaceReady}
+              onAddToGroup={addPagesToGroup}
             />
           </>
         )}

@@ -379,3 +379,79 @@ export function collapseSkeleton(rect: { left: number; top: number; width: numbe
   )
   void fold.finished.then(() => layer.remove(), () => layer.remove())
 }
+
+const FLY_IN_MS = 520
+const FLY_IN_STAGGER_MS = 60
+
+// Pages dropped on a group shrink into its stack, then the stack and its count give a small pop.
+// The dragged card starts from where it was let go; any other selected pages start from their own slots.
+export function flyIntoGroup(
+  pageIds: string[],
+  groupId: string,
+  release: { id: string; left: number; top: number } | undefined,
+  applyAdd: () => void,
+) {
+  const grid = getGrid()
+  const ids = new Set(pageIds)
+  const cards =
+    grid && !prefersReducedMotion()
+      ? Array.from(grid.querySelectorAll<HTMLElement>('[data-page-ids]'))
+          .filter((card) => !card.classList.contains('group-card') && isFullyRemoved(card, ids))
+          .slice(0, MAX_ANIMATED_CARDS)
+      : []
+  const layer = grid && cards.length > 0 ? createFlightLayer(grid) : undefined
+  const flights = layer
+    ? cards.map((card, index) => {
+        const rect = card.getBoundingClientRect()
+        const start =
+          release && card.dataset.pageId === release.id
+            ? { left: release.left, top: release.top, width: rect.width, height: rect.height }
+            : rect
+        const clone = cloneCard(card, layer, start as DOMRect, cards.length - index + 1)
+        clone.querySelectorAll('button, .page-metadata').forEach((element) => element.remove())
+        return { clone, start }
+      })
+    : []
+
+  applyAdd()
+  if (flights.length === 0) return
+
+  afterRender(() => {
+    const target = document.querySelector<HTMLElement>(
+      `.page-grid .group-card[data-group-id="${CSS.escape(groupId)}"]`,
+    )
+    if (!target) {
+      layer?.remove()
+      return
+    }
+    const stack = target.querySelector<HTMLElement>('.group-preview-stack') ?? target
+    const to = center(stack.getBoundingClientRect())
+    const lastLanding = Math.min(flights.length - 1, MAX_STAGGER_STEPS) * FLY_IN_STAGGER_MS + FLY_IN_MS
+
+    const finished = flights.map(({ clone, start }, index) => {
+      const from = { x: start.left + start.width / 2, y: start.top + start.height / 2 }
+      const delay = Math.min(index, MAX_STAGGER_STEPS) * FLY_IN_STAGGER_MS
+      const flight = clone.animate(
+        [
+          { transform: 'translate(0, 0) scale(1) rotate(3deg)', opacity: 1 },
+          { transform: `translate(${to.x - from.x}px, ${to.y - from.y}px) scale(0.42) rotate(0deg)`, opacity: 0.9, offset: 0.8 },
+          { transform: `translate(${to.x - from.x}px, ${to.y - from.y}px) scale(0.3) rotate(0deg)`, opacity: 0 },
+        ],
+        { duration: FLY_IN_MS, delay, easing: 'cubic-bezier(0.5, 0, 0.2, 1)', fill: 'forwards' },
+      )
+      return flight.finished
+    })
+
+    // The stack takes the pages in, and its count ticks up.
+    const popDelay = Math.max(0, lastLanding - 160)
+    target.animate(
+      [{ transform: 'scale(1)' }, { transform: 'scale(1.045)', offset: 0.45 }, { transform: 'scale(1)' }],
+      { duration: 360, delay: popDelay, easing: SPRING },
+    )
+    target.querySelector('.group-count-badge')?.animate(
+      [{ transform: 'scale(1)' }, { transform: 'scale(1.5)', offset: 0.4 }, { transform: 'scale(1)' }],
+      { duration: 420, delay: popDelay, easing: SPRING },
+    )
+    void Promise.allSettled(finished).then(() => layer?.remove())
+  })
+}

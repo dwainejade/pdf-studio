@@ -18,6 +18,7 @@ import { displayName } from '../../lib/displayName'
 import {
   animateArrivals,
   collapseSkeleton,
+  flyIntoGroup,
   landDraggedCard,
   setLiftedDragImage,
   type DragRelease,
@@ -35,6 +36,10 @@ const REARRANGE_ANIMATION_MS = 220
 const NUDGE_PX = 8
 
 type DropSide = 'before' | 'after'
+
+// The middle of a group card means "put the page in the group"; the outer quarters keep the before/after bar.
+// Once inside, the zone widens a little so the cue does not flicker at its edge.
+const INTO_ZONE = { enter: [0.3, 0.7], stay: [0.2, 0.8] } as const
 
 /** Where the pointer took hold of a card, and where the card's preview sat, so a drop can pick up from there. */
 interface DragGrab {
@@ -62,6 +67,7 @@ function slotChangesNothing(
   draggingId: string | null,
 ): boolean {
   const [overId, side] = slot.split('|')
+  if (side === 'into') return false
   const idOf = (item: (typeof items)[number]) => (item.type === 'group' ? item.pages[0].id : item.page.id)
   const overIndex = items.findIndex((item) => idOf(item) === overId)
   const dragIndex = items.findIndex((item) => idOf(item) === draggingId)
@@ -97,6 +103,8 @@ interface PageGridProps {
   onUngroupPage?: (pageId: string) => void
   /** New pages drop in with an animation once the workspace has loaded. */
   animateArrivals?: boolean
+  /** Loose pages dropped onto a group join it. */
+  onAddToGroup?: (pageIds: string[], groupId: string) => void
 }
 
 interface GroupCardProps {
@@ -107,6 +115,8 @@ interface GroupCardProps {
   pdfs: UploadedPdf[]
   isSelected: boolean
   isBeingDragged: boolean
+  /** A page is being dragged over the middle of this group. */
+  isDropTarget: boolean
   onSelect: (modifiers: { extend: boolean; toggle: boolean }) => void
   onDragStart: (pageId: string, grab: DragGrab) => void
   onDragEnd: (event?: ReactDragEvent<HTMLElement>) => void
@@ -144,6 +154,7 @@ function GroupCard({
   pdfs,
   isSelected,
   isBeingDragged,
+  isDropTarget,
   onSelect,
   onDragStart,
   onDragEnd,
@@ -185,7 +196,7 @@ function GroupCard({
   return (
     <article
       ref={cardRef}
-      className={`page-card group-card${isSelected ? ' is-selected' : ''}${isBeingDragged ? ' is-dragging' : ''}`}
+      className={`page-card group-card${isSelected ? ' is-selected' : ''}${isBeingDragged ? ' is-dragging' : ''}${isDropTarget ? ' is-drop-target' : ''}`}
       tabIndex={0}
       draggable
       data-page-id={cover.id}
@@ -608,6 +619,7 @@ export function PageGrid({
   groupCanvasName,
   onUngroupPage,
   animateArrivals: shouldAnimateArrivals = false,
+  onAddToGroup,
 }: PageGridProps) {
   const sourcePdfById = useMemo(
     () => new Map(pdfs.map((pdf) => [pdf.id, pdf])),
@@ -872,6 +884,16 @@ export function PageGrid({
   }
 
   // While dragging, only an insertion bar marks the spot; the cards rearrange once the page is released.
+  const groupByCoverId = useMemo(() => {
+    const lookup = new Map<string, PageGroup>()
+    for (const item of gridItems) if (item.type === 'group') lookup.set(item.pages[0].id, item.group)
+    return lookup
+  }, [gridItems])
+
+  // Loose pages in what is being dragged. A group being dragged cannot be dropped into another group.
+  const draggedLoosePageIds = (id: string) =>
+    groupByCoverId.has(id) ? [] : getDragPages(id).filter((page) => !page.groupId).map((page) => page.id)
+
   const handleDragOverPage = (pageId: string, event: ReactDragEvent<HTMLElement>) => {
     if (!draggingId) return
     if (pageId === draggingId) {
@@ -879,8 +901,15 @@ export function PageGrid({
       return
     }
     const bounds = event.currentTarget.getBoundingClientRect()
-    const isAfter = event.clientX > bounds.left + bounds.width / 2
-    const slot = `${pageId}|${isAfter ? 'after' : 'before'}`
+    const fraction = (event.clientX - bounds.left) / bounds.width
+    // The card's own box decides the zone, so cues that move content never change what the pointer is over.
+    const wasInto = hoverSlotRef.current === `${pageId}|into`
+    const [low, high] = wasInto ? INTO_ZONE.stay : INTO_ZONE.enter
+    const canJoin = onAddToGroup && groupByCoverId.has(pageId) && draggedLoosePageIds(draggingId).length > 0
+    const slot =
+      canJoin && fraction >= low && fraction <= high
+        ? `${pageId}|into`
+        : `${pageId}|${fraction > 0.5 ? 'after' : 'before'}`
     if (slot !== hoverSlotRef.current) updateHoverSlot(slot)
   }
 
@@ -895,12 +924,28 @@ export function PageGrid({
     event.preventDefault()
     event.stopPropagation()
     let moved = false
+    const grab = grabRef.current
+    const intoGroup = hoverSlot?.endsWith('|into')
+      ? groupByCoverId.get(hoverSlot.split('|')[0])
+      : undefined
+    const joiningIds = intoGroup ? draggedLoosePageIds(draggingId) : []
+    if (intoGroup && joiningIds.length > 0 && onAddToGroup) {
+      // The pages fly into the stack, so there is no landing from the release point.
+      flyIntoGroup(
+        joiningIds,
+        intoGroup.id,
+        grab ? { id: draggingId, left: event.clientX - grab.x, top: event.clientY - grab.y } : undefined,
+        () => onAddToGroup(joiningIds, intoGroup.id),
+      )
+      if (grab) collapseSkeleton(grab.preview)
+      endDrag()
+      return
+    }
     if (hoverSlot && !slotChangesNothing(gridItems, hoverSlot, draggingId)) {
       const [overId, side] = hoverSlot.split('|') as [string, DropSide]
       onReorder(draggingId, overId, side)
       moved = true
     }
-    const grab = grabRef.current
     if (grab) {
       releaseRef.current = {
         id: draggingId,
@@ -968,15 +1013,16 @@ export function PageGrid({
     // The bar sits centred in the gap on one side of the hovered card.
     const indicator = indicatorRef.current
     if (!indicator) return
-    const hovered = hoverSlot?.split('|') as [string, DropSide] | undefined
+    const hovered = hoverSlot?.split('|') as [string, DropSide | 'into'] | undefined
     const bounds = hovered ? boundsById.get(hovered[0]) : undefined
     if (!hovered || !bounds) {
       indicator.classList.remove('is-visible')
       return
     }
 
-    // Dropping beside the dragged card's own spot changes nothing, so no bar is shown there.
-    if (slotChangesNothing(gridItems, hoverSlot ?? '', draggingId)) {
+    // Over the middle of a group the stack shows the cue instead of a bar; beside the dragged card's own spot,
+    // where a drop changes nothing, there is no bar either.
+    if (hovered[1] === 'into' || slotChangesNothing(gridItems, hoverSlot ?? '', draggingId)) {
       indicator.classList.remove('is-visible')
       return
     }
@@ -1125,6 +1171,7 @@ export function PageGrid({
                     pdfs={pdfs}
                     isSelected={isGroupSelected}
                     isBeingDragged={draggingId === cover.id}
+                    isDropTarget={hoverSlot === `${cover.id}|into`}
                     onSelect={(modifiers) => selectPages(item.pages.map((page) => page.id), modifiers)}
                     onDragStart={startDrag}
                     onDragEnd={endDrag}

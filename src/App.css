@@ -2871,3 +2871,42 @@ button.group-count-badge:hover {
     animation: none;
   }
 }
+
+/* A page is over the middle of a group: the stack opens and glows to say it will be added. */
+.page-grid.view-grid .group-card.is-drop-target > .group-preview-stack {
+  border-radius: var(--radius-card);
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  background: var(--accent-soft);
+  box-shadow: 0 0 24px rgba(159, 136, 255, 0.45);
+  transition:
+    outline-color 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out),
+    background 160ms var(--ease-out);
+}
+
+.group-preview-sheet {
+  transition:
+    translate 220ms var(--ease-out),
+    rotate 220ms var(--ease-out);
+}
+
+.page-grid.view-grid .group-card.is-drop-target .group-preview-sheet-layer-1 {
+  translate: -10px 2px;
+  rotate: -5deg;
+}
+
+.page-grid.view-grid .group-card.is-drop-target .group-preview-sheet-layer-2 {
+  translate: 10px 1px;
+  rotate: 4deg;
+}
+
+.page-grid.view-grid .group-card.is-drop-target .group-preview-sheet-layer-3 {
+  translate: -5px 0;
+  rotate: -3deg;
+}
+
+.page-grid.view-grid .group-card.is-drop-target .group-preview-sheet-layer-4 {
+  translate: 5px 0;
+  rotate: 2deg;
+}
