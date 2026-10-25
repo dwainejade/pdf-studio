@@ -34,6 +34,10 @@ import { ExportDrawer } from './components/export/ExportDrawer'
 import { ImageImportDialog } from './components/uploader/ImageImportDialog'
 import { loadPdfPages } from './lib/pdfLoader'
 import { A4_HEIGHT, A4_WIDTH, createBlankPage } from './lib/blankPage'
+import { extractArchive } from './lib/archiveLoader'
+import { mapInOrder } from './lib/concurrency'
+import { ACCEPTED_FILES, classifyFile, UNSUPPORTED_MESSAGE } from './lib/fileKinds'
+import { loadTiffDocument } from './lib/tiffLoader'
 import { loadImagePage, type ImagePageOrientation } from './lib/imagePdfLoader'
 import { loadWorkspace, savePdfFile, saveWorkspace } from './lib/workspaceDatabase'
 import { usePdfStore } from './store/pdfStore'
@@ -331,7 +335,7 @@ function App() {
         id: crypto.randomUUID(),
         fileName: rejection.file.name,
         message: rejection.errors.some((error) => error.code === 'file-invalid-type')
-          ? 'Only PDF, JPEG, and PNG files are supported.'
+          ? UNSUPPORTED_MESSAGE
           : rejection.errors.map((error) => error.message).join(' '),
       })),
     ])
@@ -366,81 +370,131 @@ function App() {
     [activeGroup, activeGroupPages, addPdf, pages, selectedPageIds],
   )
 
-  const handleFiles = useCallback(async (files: File[]) => {
-    const imageFiles = files.filter((file) =>
-      file.type.startsWith('image/') || /\.(jpe?g|png)$/i.test(file.name),
-    )
-    const pdfFiles = files.filter((file) => !imageFiles.includes(file))
-    if (imageFiles.length > 0) {
-      setPendingImageFiles((current) => [...current, ...imageFiles])
-    }
-    if (pdfFiles.length === 0) return
-    setProcessingCount((count) => count + pdfFiles.length)
+  const reportError = useCallback((fileName: string, message: string) => {
+    setErrors((current) => [...current, { id: crypto.randomUUID(), fileName, message }])
+  }, [])
 
-    await Promise.all(
-      pdfFiles.map(async (file) => {
-        const id = crypto.randomUUID()
-        const importedAt = new Date().toISOString()
+  const handleFiles = useCallback(async (incoming: File[]) => {
+    // Archives are unpacked first, so what is inside goes through the same steps as dropped files.
+    const files: File[] = []
+    for (const file of incoming) {
+      const kind = classifyFile(file)
+      if (kind === 'unsupported') {
+        reportError(file.name, UNSUPPORTED_MESSAGE)
+      } else if (kind === 'archive') {
+        setProcessingCount((count) => count + 1)
         try {
-          const loadedPdf = await loadPdfPages(file, id)
-          const uploadedPdf = {
-            id,
-            name: file.name,
-            file,
-            importedAt,
-            totalPages: loadedPdf.totalPages,
-            metadata: loadedPdf.metadata,
-            sourceType: 'pdf' as const,
-          }
-          await savePdfFile(uploadedPdf)
-          addPdf(uploadedPdf, loadedPdf.pages)
+          files.push(...(await extractArchive(file)))
         } catch (error) {
-          setErrors((current) => [
-            ...current,
-            {
-              id,
-              fileName: file.name,
-              message:
-                error instanceof Error
-                  ? error.message
-                  : 'This PDF could not be opened. Please try another file.',
-            },
-          ])
+          reportError(file.name, error instanceof Error ? error.message : 'This archive could not be opened.')
         } finally {
           setProcessingCount((count) => count - 1)
         }
-      }),
-    )
-  }, [addPdf])
+      } else {
+        files.push(file)
+      }
+    }
+
+    const imageFiles = files.filter((file) => classifyFile(file) === 'image')
+    if (imageFiles.length > 0) {
+      setPendingImageFiles((current) => [...current, ...imageFiles])
+    }
+    const documentFiles = files.filter((file) => ['pdf', 'tiff'].includes(classifyFile(file)))
+    if (documentFiles.length === 0) return
+    setProcessingCount((count) => count + documentFiles.length)
+
+    // Files are opened a few at a time but added in the order they were given.
+    const opened = await mapInOrder(documentFiles, 3, async (file) => {
+      try {
+        if (classifyFile(file) === 'tiff') {
+          const { source, pages: tiffPages } = await loadTiffDocument(file)
+          await savePdfFile(source)
+          return { source, pages: tiffPages }
+        }
+        const id = crypto.randomUUID()
+        const loadedPdf = await loadPdfPages(file, id)
+        const source = {
+          id,
+          name: file.name,
+          file,
+          importedAt: new Date().toISOString(),
+          totalPages: loadedPdf.totalPages,
+          metadata: loadedPdf.metadata,
+          sourceType: 'pdf' as const,
+        }
+        await savePdfFile(source)
+        return { source, pages: loadedPdf.pages }
+      } catch (error) {
+        reportError(
+          file.name,
+          error instanceof Error ? error.message : 'This file could not be opened. Please try another file.',
+        )
+        return undefined
+      } finally {
+        setProcessingCount((count) => count - 1)
+      }
+    })
+    for (const result of opened) {
+      if (result) addPdf(result.source, result.pages)
+    }
+  }, [addPdf, reportError])
 
   const importImages = useCallback(async () => {
     const files = pendingImageFiles
     setPendingImageFiles([])
     setProcessingCount((count) => count + files.length)
-    await Promise.all(
-      files.map(async (file) => {
-        try {
-          const { source, page } = await loadImagePage(file, imagePageOrientation)
-          await savePdfFile(source)
-          addPdf(source, [page])
-        } catch (error) {
-          setErrors((current) => [
-            ...current,
-            {
-              id: crypto.randomUUID(),
-              fileName: file.name,
-              message:
-                error instanceof Error
-                  ? error.message
-                  : 'This image could not be converted to a PDF page.',
-            },
-          ])
-        } finally {
-          setProcessingCount((count) => count - 1)
-        }
-      }),
-    )
-  }, [addPdf, imagePageOrientation, pendingImageFiles])
+    const converted = await mapInOrder(files, 4, async (file) => {
+      try {
+        const result = await loadImagePage(file, imagePageOrientation)
+        await savePdfFile(result.source)
+        return result
+      } catch (error) {
+        reportError(
+          file.name,
+          error instanceof Error ? error.message : 'This image could not be converted to a PDF page.',
+        )
+        return undefined
+      } finally {
+        setProcessingCount((count) => count - 1)
+      }
+    })
+    for (const result of converted) {
+      if (result) addPdf(result.source, [result.page])
+    }
+  }, [addPdf, imagePageOrientation, pendingImageFiles, reportError])
+
+  // Pasting copied files or a screenshot adds them, unless the paste is meant for a text field or a dialog is open.
+  useEffect(() => {
+    if (!isWorkspaceReady) return
+    const handlePaste = (event: ClipboardEvent) => {
+      const target = event.target
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+      ) {
+        return
+      }
+      if (document.querySelector('[aria-modal="true"]')) return
+      const supported = Array.from(event.clipboardData?.files ?? []).filter(
+        (file) => classifyFile(file) !== 'unsupported',
+      )
+      if (supported.length === 0) return
+      event.preventDefault()
+      // Screenshots arrive as a nameless "image.png"; a clearer name helps in the page list.
+      void handleFiles(
+        supported.map((file, index) =>
+          /^image\.\w+$/i.test(file.name)
+            ? new File([file], `Pasted image${supported.length > 1 ? ` ${index + 1}` : ''}.${file.name.split('.').pop()}`, {
+                type: file.type,
+                lastModified: file.lastModified,
+              })
+            : file,
+        ),
+      )
+    }
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [handleFiles, isWorkspaceReady])
 
   useEffect(() => {
     if (!isWorkspaceReady) return
@@ -469,11 +523,9 @@ function App() {
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
-    accept: {
-      'application/pdf': ['.pdf'],
-      'image/jpeg': ['.jpg', '.jpeg'],
-      'image/png': ['.png'],
-    },
+    accept: ACCEPTED_FILES,
+    // Pasting is handled by our own listener, which skips text fields and open dialogs.
+    noPaste: true,
     noClick: true,
     noKeyboard: true,
     disabled: !isWorkspaceReady,

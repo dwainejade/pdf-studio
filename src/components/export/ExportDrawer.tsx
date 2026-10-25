@@ -15,6 +15,13 @@ import {
   formatBytes,
   type CompressionLevel,
 } from '../../lib/export/compress'
+import {
+  createImageExports,
+  IMAGE_DPI_OPTIONS,
+  IMAGE_FORMAT_OPTIONS,
+  zipImageExports,
+  type ImageFormat,
+} from '../../lib/export/images'
 
 interface ExportDrawerProps {
   pages: PdfPage[]
@@ -23,7 +30,7 @@ interface ExportDrawerProps {
   onClose: () => void
 }
 
-type ExportMode = 'merged' | 'groups' | 'individual'
+type ExportMode = 'merged' | 'groups' | 'individual' | 'images'
 
 export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps) {
   const [mode, setMode] = useState<ExportMode>('merged')
@@ -36,6 +43,9 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
     )
   })?.name
   const [filename, setFilename] = useState(groupName ?? 'Merged_Document')
+  const [zipFilename, setZipFilename] = useState(groupName ?? 'Page_Images')
+  const [imageFormat, setImageFormat] = useState<ImageFormat>('png')
+  const [imageDpi, setImageDpi] = useState(150)
   const [directory, setDirectory] = useState<ExportDirectoryHandle>()
   const [error, setError] = useState<string>()
   const [printError, setPrintError] = useState<string>()
@@ -59,8 +69,15 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
     pages.filter((page) => page.groupId && groups.some((group) => group.id === page.groupId)).map((page) => page.groupId),
   )
   const ungroupedCount = pages.filter((page) => !page.groupId).length
+  const zipFile = `${mergedFilename(zipFilename).replace(/\.pdf$/i, '')}.zip`
+  // Several images are zipped for a single download, unless a folder was chosen to receive them directly.
+  const imagesAreZipped = mode === 'images' && pages.length > 1 && !directory
   const outputSummary =
-    mode === 'merged'
+    mode === 'images'
+      ? imagesAreZipped
+        ? `1 file: ${zipFile} (${pages.length} ${imageFormat === 'png' ? 'PNG' : 'JPG'} images, ${imageDpi} dpi)`
+        : `${pages.length} ${imageFormat === 'png' ? 'PNG' : 'JPG'} ${pages.length === 1 ? 'image' : 'images'}, ${imageDpi} dpi`
+      : mode === 'merged'
       ? `1 file: ${mergedFilename(filename)} (${pages.length} ${pages.length === 1 ? 'page' : 'pages'})`
       : mode === 'groups'
         ? `${groupedIds.size + ungroupedCount} files: ${groupedIds.size} ${groupedIds.size === 1 ? 'group' : 'groups'}${ungroupedCount > 0 ? ` and ${ungroupedCount} separate ${ungroupedCount === 1 ? 'page' : 'pages'}` : ''}`
@@ -96,7 +113,24 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
         await saveExportFile(result.bytes, filename, directory)
       }
 
-      if (mode === 'merged') {
+      if (mode === 'images') {
+        const images = await createImageExports(pages, pdfs, { format: imageFormat, dpi: imageDpi }, (done, total) =>
+          setProgress(`Rendering page ${done} of ${total}…`),
+        )
+        if (imagesAreZipped) {
+          setProgress('Zipping images…')
+          const archive = await zipImageExports(images)
+          await saveExportFile(archive, zipFile, undefined, 'application/zip')
+          fileCount = 1
+          finalTotal = archive.byteLength
+        } else {
+          for (const image of images) {
+            await saveExportFile(image.bytes, image.filename, directory, image.mimeType)
+            fileCount += 1
+            finalTotal += image.bytes.byteLength
+          }
+        }
+      } else if (mode === 'merged') {
         const { createMergedPdf } = await import('../../lib/export/merged')
         const bytes = await createMergedPdf(pages, pdfs)
         await saveFile(bytes, mergedFilename(filename), mergedFilename(filename))
@@ -208,8 +242,72 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
               <small>One selected page per file</small>
             </span>
           </label>
+          <label className={`export-mode-option${mode === 'images' ? ' is-active' : ''}`}>
+            <input
+              type="radio"
+              name="export-mode"
+              value="images"
+              checked={mode === 'images'}
+              onChange={() => setMode('images')}
+            />
+            <span className="export-radio" />
+            <span>
+              <strong>Images (PNG or JPG)</strong>
+              <small>One image per page; several are zipped together</small>
+            </span>
+          </label>
         </fieldset>
 
+        {mode === 'images' && (
+          <>
+            <fieldset className="export-mode-options">
+              <legend>Image format</legend>
+              {IMAGE_FORMAT_OPTIONS.map((option) => (
+                <label
+                  key={option.format}
+                  className={`export-mode-option${imageFormat === option.format ? ' is-active' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="export-image-format"
+                    value={option.format}
+                    checked={imageFormat === option.format}
+                    onChange={() => setImageFormat(option.format)}
+                  />
+                  <span className="export-radio" />
+                  <span>
+                    <strong>{option.title}</strong>
+                    <small>{option.detail}</small>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            <fieldset className="export-mode-options">
+              <legend>Resolution</legend>
+              {IMAGE_DPI_OPTIONS.map((option) => (
+                <label
+                  key={option.dpi}
+                  className={`export-mode-option${imageDpi === option.dpi ? ' is-active' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="export-image-dpi"
+                    value={option.dpi}
+                    checked={imageDpi === option.dpi}
+                    onChange={() => setImageDpi(option.dpi)}
+                  />
+                  <span className="export-radio" />
+                  <span>
+                    <strong>{option.title}</strong>
+                    <small>{option.detail}</small>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          </>
+        )}
+
+        {mode !== 'images' && (
         <fieldset className="export-mode-options">
           <legend>File size</legend>
           {COMPRESSION_OPTIONS.map((option) => (
@@ -232,6 +330,22 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
             </label>
           ))}
         </fieldset>
+        )}
+
+        {imagesAreZipped && (
+          <label className="export-filename">
+            <span>ZIP filename</span>
+            <div className="export-filename-input">
+              <input
+                value={zipFilename}
+                onChange={(event) => setZipFilename(event.target.value)}
+                aria-label="ZIP filename"
+                placeholder="Page_Images"
+              />
+              <span>.zip</span>
+            </div>
+          </label>
+        )}
 
         {mode === 'merged' && (
           <label className="export-filename">
@@ -283,12 +397,14 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
           <button
             className="export-submit-button"
             type="button"
-            disabled={pages.length === 0 || isExporting || (mode === 'merged' && !filename.trim())}
+            disabled={pages.length === 0 || isExporting || (mode === 'merged' && !filename.trim()) || (imagesAreZipped && !zipFilename.trim())}
             onClick={() => void exportFiles()}
           >
             {!isExporting && <ArrowDownToLine size={16} />}
             {isExporting
-              ? progress ? 'Compressing…' : 'Preparing export…'
+              ? progress ? 'Working…' : 'Preparing export…'
+              : mode === 'images'
+                ? imagesAreZipped ? 'Export ZIP' : 'Export Images'
               : mode === 'merged'
                 ? 'Export Merged PDF'
                 : mode === 'groups'
