@@ -35,6 +35,7 @@ export async function saveExportFile(
   bytes: Uint8Array,
   filename: string,
   directory?: ExportDirectoryHandle,
+  mimeType = 'application/pdf',
 ): Promise<void> {
   if (directory) {
     const fileHandle = await directory.getFileHandle(filename, { create: true })
@@ -44,7 +45,7 @@ export async function saveExportFile(
     return
   }
 
-  const blob = new Blob([new Uint8Array(bytes).buffer], { type: 'application/pdf' })
+  const blob = new Blob([new Uint8Array(bytes).buffer], { type: mimeType })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url

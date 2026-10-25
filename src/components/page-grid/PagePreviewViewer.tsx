@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { flushSync } from 'react-dom'
-import { Check, ChevronLeft, ChevronRight, Pencil, RotateCcw, RotateCw, Trash2, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Minus, Pencil, Plus, RotateCcw, RotateCw, Trash2, Type, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { TextLayer } from 'pdfjs-dist'
-import type { PdfPage, UploadedPdf } from '../../types/pdf'
+import type { PageTextBox, PdfPage, UploadedPdf } from '../../types/pdf'
+import { PageTextEditor } from './PageTextOverlay'
+import { displayName } from '../../lib/displayName'
+import { DEFAULT_TEXT_SIZE, frameLayout, MAX_TEXT_SIZE, MIN_TEXT_SIZE, normalizeDegrees, rotateAboutCentre, TEXT_COLORS } from '../../lib/pageText'
 import {
   loadFullPageTextLayer,
   peekPageBitmap,
@@ -23,6 +26,7 @@ interface PagePreviewViewerProps {
   onRotate: (pageId: string, delta: number) => void
   onRename: (pageId: string, label: string) => void
   onDelete: (pageId: string) => void
+  onUpdateText: (pageId: string, textBoxes: PageTextBox[]) => void
   onClose: () => void
 }
 
@@ -48,6 +52,7 @@ export function PagePreviewViewer({
   onRotate,
   onRename,
   onDelete,
+  onUpdateText,
   onClose,
 }: PagePreviewViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -62,6 +67,16 @@ export function PagePreviewViewer({
   const [zoomState, setZoomState] = useState({ pageId, zoom: 1, sharp: 1 })
   const [editingPageId, setEditingPageId] = useState<string | null>(null)
   const [draftLabel, setDraftLabel] = useState('')
+  // Text editing state belongs to one page; moving to another page starts clean.
+  const [textState, setTextState] = useState<{
+    pageId: string
+    isAdding: boolean
+    selectedId: string | null
+    focusId: string | null
+  }>({ pageId, isAdding: false, selectedId: null, focusId: null })
+  // Edits stay in a draft until they finish, so typing is one undo step rather than one per key.
+  const [textDraft, setTextDraft] = useState<{ base: PageTextBox[] | undefined; boxes: PageTextBox[] }>()
+  const textStyleRef = useRef({ fontSize: DEFAULT_TEXT_SIZE, color: TEXT_COLORS[0] })
   const zoom = zoomState.pageId === pageId ? zoomState.zoom : 1
   const sharpZoom = zoomState.pageId === pageId ? zoomState.sharp : 1
   const [isZoomAnimating, setIsZoomAnimating] = useState(false)
@@ -77,6 +92,11 @@ export function PagePreviewViewer({
   const isRenaming = editingPageId === pageId
   const sourcePdf = page && pdfs.find((pdf) => pdf.id === page.sourcePdfId)
   const rotation = page?.rotation
+  const activeText = textState.pageId === pageId ? textState : undefined
+  const isAddingText = activeText?.isAdding ?? false
+  const selectedTextId = activeText?.selectedId ?? null
+  const textBoxes = textDraft && textDraft.base === page?.textBoxes ? textDraft.boxes : (page?.textBoxes ?? [])
+  const selectedTextBox = textBoxes.find((box) => box.id === selectedTextId)
   const renderKey = `${pageId}:${rotation}`
   const isLoading = rendered?.key !== renderKey
   const previousId = pages[index - 1]?.id
@@ -182,6 +202,73 @@ export function PagePreviewViewer({
     [changeZoom, zoom],
   )
 
+  const patchText = useCallback(
+    (patch: Partial<typeof textState>) =>
+      setTextState((current) => ({
+        ...(current.pageId === pageId ? current : { pageId, isAdding: false, selectedId: null, focusId: null }),
+        ...patch,
+      })),
+    [pageId],
+  )
+
+  const addTextBox = (x: number, y: number) => {
+    if (!page) return
+    const box: PageTextBox = { id: crypto.randomUUID(), x, y, text: '', ...textStyleRef.current }
+    setTextDraft({ base: page.textBoxes, boxes: [...textBoxes, box] })
+    patchText({ isAdding: false, selectedId: box.id, focusId: box.id })
+  }
+
+  const editTextBoxes = (update: (box: PageTextBox) => PageTextBox, id: string) =>
+    page && setTextDraft({ base: page.textBoxes, boxes: textBoxes.map((box) => (box.id === id ? update(box) : box)) })
+
+  // Saves the draft as one undo step; boxes left empty are dropped.
+  const commitText = () => {
+    if (!page) return
+    const kept = textBoxes.filter((box) => box.text.trim() !== '')
+    const changed =
+      kept.length !== (page.textBoxes?.length ?? 0) ||
+      kept.some((box, index) => box !== page.textBoxes?.[index])
+    setTextDraft(undefined)
+    if (changed) onUpdateText(page.id, kept)
+    if (kept.length !== textBoxes.length) patchText({ selectedId: null, focusId: null })
+  }
+
+  const styleSelectedText = (patch: Partial<Pick<PageTextBox, 'fontSize' | 'color'>>) => {
+    if (!page || !selectedTextBox) return
+    textStyleRef.current = { ...textStyleRef.current, ...patch }
+    setTextDraft(undefined)
+    onUpdateText(
+      page.id,
+      textBoxes.filter((box) => box.text.trim() !== '').map((box) => (box.id === selectedTextBox.id ? { ...box, ...patch } : box)),
+    )
+  }
+
+  // Turns the selected text a step about its centre, using the box's rendered size.
+  const turnSelectedText = (delta: number) => {
+    if (!page || !selectedTextBox) return
+    const element = dialogRef.current?.querySelector<HTMLElement>(`[data-text-box-id="${selectedTextBox.id}"]`)
+    if (!element) return
+    const frame = frameLayout(page.rotation, surfaceWidth, surfaceHeight)
+    const turned = rotateAboutCentre(
+      selectedTextBox,
+      normalizeDegrees((selectedTextBox.rotation ?? 0) + delta),
+      { width: element.offsetWidth, height: element.offsetHeight },
+      frame,
+    )
+    setTextDraft(undefined)
+    onUpdateText(
+      page.id,
+      textBoxes.filter((box) => box.text.trim() !== '').map((box) => (box.id === selectedTextBox.id ? { ...box, ...turned } : box)),
+    )
+  }
+
+  const removeSelectedText = () => {
+    if (!page || !selectedTextBox) return
+    setTextDraft(undefined)
+    onUpdateText(page.id, textBoxes.filter((box) => box.id !== selectedTextBox.id && box.text.trim() !== ''))
+    patchText({ selectedId: null, focusId: null })
+  }
+
   const handleDelete = () => {
     if (!page) return
     onDelete(page.id)
@@ -189,14 +276,14 @@ export function PagePreviewViewer({
 
   const beginRename = () => {
     if (!page) return
-    setDraftLabel(page.label || page.sourcePdfName)
+    setDraftLabel(page.label || displayName(page.sourcePdfName))
     setEditingPageId(page.id)
   }
 
   const finishRename = () => {
     if (!page) return
     const label = draftLabel.trim()
-    onRename(page.id, !page.label && label === page.sourcePdfName ? '' : label)
+    onRename(page.id, !page.label && label === displayName(page.sourcePdfName) ? '' : label)
     setEditingPageId(null)
   }
 
@@ -210,6 +297,7 @@ export function PagePreviewViewer({
     const onKeyDown = (event: KeyboardEvent) => {
       if (
         event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement ||
         (event.target instanceof HTMLElement && event.target.closest('[role="alertdialog"]'))
       ) {
         return
@@ -223,8 +311,10 @@ export function PagePreviewViewer({
       ) {
         return
       }
-      if (event.key === 'Escape') onClose()
-      else if (event.key === 'ArrowLeft') {
+      if (event.key === 'Escape') {
+        if (isAddingText) patchText({ isAdding: false })
+        else onClose()
+      } else if (event.key === 'ArrowLeft') {
         if (previousId) onNavigate(previousId)
       } else if (event.key === 'ArrowRight') {
         if (nextId) onNavigate(nextId)
@@ -238,7 +328,7 @@ export function PagePreviewViewer({
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [changeZoom, nextId, onClose, onNavigate, onRotate, page, previousId, stepZoom])
+  }, [changeZoom, isAddingText, nextId, onClose, onNavigate, onRotate, page, patchText, previousId, stepZoom])
 
   useEffect(() => {
     const stage = stageRef.current
@@ -428,7 +518,7 @@ export function PagePreviewViewer({
       className="page-viewer"
       role="dialog"
       aria-modal="true"
-      aria-label={`Page ${page.pageNumber} of ${page.label || page.sourcePdfName}, full view`}
+      aria-label={`Page ${page.pageNumber} of ${page.label || displayName(page.sourcePdfName)}, full view`}
       tabIndex={-1}
     >
       <header className="page-viewer-bar">
@@ -471,7 +561,7 @@ export function PagePreviewViewer({
               </>
             ) : (
               <>
-                <strong>{page.label || page.sourcePdfName}</strong>
+                <strong>{page.label || displayName(page.sourcePdfName)}</strong>
                 <button
                   type="button"
                   className="page-viewer-rename-button"
@@ -511,8 +601,36 @@ export function PagePreviewViewer({
             <canvas
               ref={canvasRef}
               className="page-viewer-image"
-              onClick={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                if (selectedTextId) patchText({ selectedId: null, focusId: null })
+              }}
             />
+            {!isLoading && (
+              <PageTextEditor
+                boxes={textBoxes}
+                page={page}
+                displayRotation={page.rotation}
+                width={surfaceWidth}
+                height={surfaceHeight}
+                isAdding={isAddingText}
+                selectedId={selectedTextId}
+                focusId={activeText?.focusId ?? null}
+                onAdd={addTextBox}
+                onSelect={(id) => patchText({ selectedId: id })}
+                onTextChange={(id, text) => editTextBoxes((box) => ({ ...box, text }), id)}
+                onChange={(id, patch, commit) => {
+                  if (!commit) return editTextBoxes((box) => ({ ...box, ...patch }), id)
+                  if (!page) return
+                  setTextDraft(undefined)
+                  onUpdateText(
+                    page.id,
+                    textBoxes.filter((box) => box.text.trim() !== '').map((box) => (box.id === id ? { ...box, ...patch } : box)),
+                  )
+                }}
+                onCommit={commitText}
+              />
+            )}
             {pageTextLayer?.key === textLayerKey && (
               <div
                 ref={textLayerRef}
@@ -581,6 +699,80 @@ export function PagePreviewViewer({
           </button>
         </div>
         <span className="page-viewer-toolbar-divider" aria-hidden="true" />
+        <button
+          type="button"
+          className={`page-action-button${isAddingText ? ' is-active' : ''}`}
+          aria-pressed={isAddingText}
+          title="Add text, then click the page (T)"
+          onClick={() => patchText({ isAdding: !isAddingText, selectedId: null, focusId: null })}
+        >
+          <Type size={16} />
+          <span>{isAddingText ? 'Click the page' : 'Add text'}</span>
+        </button>
+        {selectedTextBox && (
+          <div className="page-text-controls" role="group" aria-label="Text style">
+            <button
+              type="button"
+              className="page-viewer-zoom-button"
+              aria-label="Smaller text"
+              disabled={selectedTextBox.fontSize <= MIN_TEXT_SIZE}
+              onClick={() => styleSelectedText({ fontSize: Math.max(MIN_TEXT_SIZE, selectedTextBox.fontSize - 2) })}
+            >
+              <Minus size={14} />
+            </button>
+            <span className="page-text-size">{selectedTextBox.fontSize} pt</span>
+            <button
+              type="button"
+              className="page-viewer-zoom-button"
+              aria-label="Larger text"
+              disabled={selectedTextBox.fontSize >= MAX_TEXT_SIZE}
+              onClick={() => styleSelectedText({ fontSize: Math.min(MAX_TEXT_SIZE, selectedTextBox.fontSize + 2) })}
+            >
+              <Plus size={14} />
+            </button>
+            <span className="page-viewer-toolbar-divider" aria-hidden="true" />
+            <button
+              type="button"
+              className="page-viewer-zoom-button"
+              aria-label="Rotate text left 15 degrees"
+              title="Rotate left 15°"
+              onClick={() => turnSelectedText(-15)}
+            >
+              <RotateCcw size={14} />
+            </button>
+            <button
+              type="button"
+              className="page-viewer-zoom-button"
+              aria-label="Rotate text right 15 degrees"
+              title="Rotate right 15°"
+              onClick={() => turnSelectedText(15)}
+            >
+              <RotateCw size={14} />
+            </button>
+            <span className="page-viewer-toolbar-divider" aria-hidden="true" />
+            {TEXT_COLORS.map((color) => (
+              <button
+                key={color}
+                type="button"
+                className={`page-text-swatch${selectedTextBox.color === color ? ' is-active' : ''}`}
+                style={{ background: color }}
+                aria-label={`Text color ${color}`}
+                aria-pressed={selectedTextBox.color === color}
+                onClick={() => styleSelectedText({ color })}
+              />
+            ))}
+            <span className="page-viewer-toolbar-divider" aria-hidden="true" />
+            <button
+              type="button"
+              className="page-viewer-zoom-button"
+              aria-label="Delete text"
+              title="Delete text"
+              onClick={removeSelectedText}
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        )}
         {activeTextLayerError && (
           <span className="page-viewer-message" role="status">
             {activeTextLayerError}

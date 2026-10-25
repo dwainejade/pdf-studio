@@ -1,6 +1,6 @@
 import { PDFDocument } from 'pdf-lib'
 import type { PdfPage, UploadedPdf } from '../../types/pdf'
-import { applyPageRotation, findSourcePdf, loadSourceDocument } from './common'
+import { appendStudioPage } from './common'
 
 export async function createMergedPdf(
   pagesInGridOrder: PdfPage[],
@@ -13,11 +13,7 @@ export async function createMergedPdf(
 
   const output = await PDFDocument.create()
   for (const page of pagesInGridOrder) {
-    const source = findSourcePdf(page, pdfs)
-    const sourceDocument = await loadSourceDocument(source, documentCache)
-    const [copiedPage] = await output.copyPages(sourceDocument, [page.pageNumber - 1])
-    applyPageRotation(copiedPage, page.rotation)
-    output.addPage(copiedPage)
+    await appendStudioPage(output, page, pdfs, documentCache)
   }
   return output.save()
 }
