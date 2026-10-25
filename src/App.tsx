@@ -7,6 +7,7 @@ import {
   ArrowDownToLine,
   Check,
   Copy,
+  FilePlus,
   FileStack,
   FileText,
   Info,
@@ -32,12 +33,23 @@ import { PagePreviewViewer } from './components/page-grid/PagePreviewViewer'
 import { ExportDrawer } from './components/export/ExportDrawer'
 import { ImageImportDialog } from './components/uploader/ImageImportDialog'
 import { loadPdfPages } from './lib/pdfLoader'
+import { A4_HEIGHT, A4_WIDTH, createBlankPage } from './lib/blankPage'
 import { loadImagePage, type ImagePageOrientation } from './lib/imagePdfLoader'
 import { loadWorkspace, savePdfFile, saveWorkspace } from './lib/workspaceDatabase'
 import { usePdfStore } from './store/pdfStore'
 import { useViewPreferences } from './store/viewPreferences'
 import type { UploadError } from './types/pdf'
 import './App.css'
+
+// Files opened with the installed app arrive through the browser's launch queue (Chromium PWAs only).
+interface LaunchParams {
+  files: Array<{ getFile: () => Promise<File> }>
+}
+declare global {
+  interface Window {
+    launchQueue?: { setConsumer: (consumer: (params: LaunchParams) => void) => void }
+  }
+}
 
 function App() {
   const [processingCount, setProcessingCount] = useState(0)
@@ -82,6 +94,7 @@ function App() {
   const duplicatePages = usePdfStore((state) => state.duplicatePages)
   const rotatePages = usePdfStore((state) => state.rotatePages)
   const renamePage = usePdfStore((state) => state.renamePage)
+  const setPageTextBoxes = usePdfStore((state) => state.setPageTextBoxes)
   const groupPages = usePdfStore((state) => state.groupPages)
   const groupPagesWithAnimation = useCallback(
     (pageIds: string[]) => groupWithAnimation(pageIds, () => groupPages(pageIds)),
@@ -324,6 +337,35 @@ function App() {
     ])
   }, [])
 
+  const addBlankPage = useCallback(
+    async (afterPageId?: string) => {
+      const selected = pages.filter((page) => selectedPageIds.includes(page.id))
+      const reference =
+        pages.find((page) => page.id === afterPageId) ??
+        selected[selected.length - 1] ??
+        (activeGroup ? activeGroupPages[activeGroupPages.length - 1] : undefined)
+      // The blank page matches its neighbour's unrotated size, falling back to A4.
+      const isSideways = reference ? Math.round(reference.rotation / 90) % 2 !== 0 : false
+      const width = reference ? (isSideways ? reference.height : reference.width) : A4_WIDTH
+      const height = reference ? (isSideways ? reference.width : reference.height) : A4_HEIGHT
+      try {
+        const { source, page } = await createBlankPage(width, height)
+        await savePdfFile(source)
+        addPdf(source, [activeGroup ? { ...page, groupId: activeGroup.id } : page], reference?.id)
+      } catch (error) {
+        setErrors((current) => [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            fileName: 'Blank page',
+            message: error instanceof Error ? error.message : 'A blank page could not be added.',
+          },
+        ])
+      }
+    },
+    [activeGroup, activeGroupPages, addPdf, pages, selectedPageIds],
+  )
+
   const handleFiles = useCallback(async (files: File[]) => {
     const imageFiles = files.filter((file) =>
       file.type.startsWith('image/') || /\.(jpe?g|png)$/i.test(file.name),
@@ -399,6 +441,15 @@ function App() {
       }),
     )
   }, [addPdf, imagePageOrientation, pendingImageFiles])
+
+  useEffect(() => {
+    if (!isWorkspaceReady) return
+    window.launchQueue?.setConsumer((params) => {
+      void Promise.all(params.files.map((handle) => handle.getFile())).then((files) => {
+        if (files.length > 0) void handleFiles(files)
+      })
+    })
+  }, [handleFiles, isWorkspaceReady])
 
   const dismissError = (id: string) => {
     setErrors((current) => current.filter((error) => error.id !== id))
@@ -582,6 +633,16 @@ function App() {
             >
               <Plus size={16} />
               Add files
+            </button>
+            <button
+              className="workspace-action-icon"
+              type="button"
+              aria-label="Add blank page"
+              title="Add blank page after the selection"
+              disabled={!isWorkspaceReady}
+              onClick={() => void addBlankPage()}
+            >
+              <FilePlus size={16} />
             </button>
             <div className="toolbar-search">
               <Search size={15} aria-hidden="true" />
@@ -940,6 +1001,18 @@ function App() {
             type="button"
             role="menuitem"
             onClick={() => {
+              const lastId = contextMenu.pageIds[contextMenu.pageIds.length - 1]
+              setContextMenu(null)
+              void addBlankPage(lastId)
+            }}
+          >
+            <FilePlus size={15} />
+            Insert blank page after
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
               setViewerPageId(contextMenu.pageIds[0])
               setContextMenu(null)
             }}
@@ -994,6 +1067,7 @@ function App() {
           onRotate={(pageId, delta) => rotatePages([pageId], delta)}
           onRename={renamePage}
           onDelete={(pageId) => requestDeletePages([pageId])}
+          onUpdateText={setPageTextBoxes}
           onClose={closeViewer}
         />
       )}

@@ -5,7 +5,7 @@ export interface UploadedPdf {
   importedAt: string
   totalPages: number
   metadata: PdfMetadata
-  sourceType?: 'pdf' | 'image'
+  sourceType?: 'pdf' | 'image' | 'blank'
   sourceSize?: number
 }
 
@@ -21,6 +21,17 @@ export interface PdfMetadata {
   version: string
 }
 
+// Positions are fractions (0-1) of the page's unrotated frame, measured from its top-left, so text turns with the page.
+export interface PageTextBox {
+  id: string
+  x: number
+  y: number
+  text: string
+  /** Size in PDF points. */
+  fontSize: number
+  color: string
+}
+
 export interface PdfPage {
   id: string
   sourcePdfId: string
@@ -32,6 +43,7 @@ export interface PdfPage {
   height: number
   label?: string
   groupId?: string
+  textBoxes?: PageTextBox[]
 }
 
 export interface PageGroup {

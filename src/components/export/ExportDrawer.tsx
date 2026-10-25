@@ -9,6 +9,12 @@ import {
 } from '../../lib/export/filesystem'
 import { mergedFilename } from '../../lib/export/filenames'
 import { printPdfPages } from '../../lib/export/printing'
+import {
+  compressPdf,
+  COMPRESSION_OPTIONS,
+  formatBytes,
+  type CompressionLevel,
+} from '../../lib/export/compress'
 
 interface ExportDrawerProps {
   pages: PdfPage[]
@@ -35,6 +41,9 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
   const [printError, setPrintError] = useState<string>()
   const [isExporting, setIsExporting] = useState(false)
   const [isPrinting, setIsPrinting] = useState(false)
+  const [compression, setCompression] = useState<CompressionLevel>('none')
+  const [progress, setProgress] = useState<string>()
+  const [resultNote, setResultNote] = useState<string>()
   const selectedPages = useMemo(() => new Set(pages.map((page) => page.id)), [pages])
   const canPickFolder = canChooseExportDirectory()
 
@@ -69,28 +78,48 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
 
   const exportFiles = async () => {
     setError(undefined)
+    setResultNote(undefined)
     setIsExporting(true)
     try {
+      let fileCount = 0
+      let originalTotal = 0
+      let finalTotal = 0
+      // Every output goes through the chosen compression before it is saved.
+      const saveFile = async (bytes: Uint8Array, filename: string, label: string) => {
+        setProgress(compression === 'none' ? undefined : `Compressing ${label}…`)
+        const result = await compressPdf(bytes, compression, (done, total) =>
+          setProgress(`Compressing ${label}: page ${done} of ${total}…`),
+        )
+        originalTotal += result.originalSize
+        finalTotal += result.bytes.byteLength
+        fileCount += 1
+        await saveExportFile(result.bytes, filename, directory)
+      }
+
       if (mode === 'merged') {
         const { createMergedPdf } = await import('../../lib/export/merged')
         const bytes = await createMergedPdf(pages, pdfs)
-        await saveExportFile(bytes, mergedFilename(filename), directory)
+        await saveFile(bytes, mergedFilename(filename), mergedFilename(filename))
       } else if (mode === 'groups') {
         const { createGroupPdfs } = await import('../../lib/export/individual')
         const files = await createGroupPdfs(pages, pdfs, groups)
-        for (const file of files) {
-          await saveExportFile(file.bytes, file.filename, directory)
-        }
+        for (const file of files) await saveFile(file.bytes, file.filename, file.filename)
       } else {
         const { createIndividualPdfs } = await import('../../lib/export/individual')
         const files = await createIndividualPdfs(pages, pdfs)
-        for (const file of files) {
-          await saveExportFile(file.bytes, file.filename, directory)
-        }
+        for (const file of files) await saveFile(file.bytes, file.filename, file.filename)
       }
+
+      const files = `${fileCount} ${fileCount === 1 ? 'file' : 'files'}`
+      setResultNote(
+        compression !== 'none' && finalTotal < originalTotal
+          ? `Exported ${files}: ${formatBytes(originalTotal)} → ${formatBytes(finalTotal)} (${Math.round((1 - finalTotal / originalTotal) * 100)}% smaller)`
+          : `Exported ${files} (${formatBytes(finalTotal)})${compression !== 'none' ? '. Already as small as it gets, so it was left as it was.' : ''}`,
+      )
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The selected pages could not be exported.')
     } finally {
+      setProgress(undefined)
       setIsExporting(false)
     }
   }
@@ -181,6 +210,29 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
           </label>
         </fieldset>
 
+        <fieldset className="export-mode-options">
+          <legend>File size</legend>
+          {COMPRESSION_OPTIONS.map((option) => (
+            <label
+              key={option.level}
+              className={`export-mode-option${compression === option.level ? ' is-active' : ''}`}
+            >
+              <input
+                type="radio"
+                name="export-compression"
+                value={option.level}
+                checked={compression === option.level}
+                onChange={() => setCompression(option.level)}
+              />
+              <span className="export-radio" />
+              <span>
+                <strong>{option.title}</strong>
+                <small>{option.detail}</small>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+
         {mode === 'merged' && (
           <label className="export-filename">
             <span>Filename</span>
@@ -214,6 +266,8 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
           {outputSummary}
         </p>
 
+        {progress && <p className="export-progress" role="status">{progress}</p>}
+        {resultNote && !isExporting && <p className="export-success" role="status">{resultNote}</p>}
         {error && <p className="export-error" role="alert">{error}</p>}
         {printError && <p className="export-error" role="alert">{printError}</p>}
         <div className="export-actions">
@@ -234,7 +288,7 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
           >
             {!isExporting && <ArrowDownToLine size={16} />}
             {isExporting
-              ? 'Preparing export…'
+              ? progress ? 'Compressing…' : 'Preparing export…'
               : mode === 'merged'
                 ? 'Export Merged PDF'
                 : mode === 'groups'

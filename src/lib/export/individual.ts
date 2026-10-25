@@ -1,10 +1,6 @@
 import { PDFDocument } from 'pdf-lib'
 import type { PageGroup, PdfPage, UploadedPdf } from '../../types/pdf'
-import {
-  applyPageRotation,
-  findSourcePdf,
-  loadSourceDocument,
-} from './common'
+import { appendStudioPage } from './common'
 import { individualFilename, mergedFilename } from './filenames'
 
 export interface IndividualPdfExport {
@@ -81,11 +77,7 @@ async function createPdfExport(
 ): Promise<IndividualPdfExport> {
   const output = await PDFDocument.create()
   for (const page of pages) {
-    const source = findSourcePdf(page, pdfs)
-    const sourceDocument = await loadSourceDocument(source, documentCache)
-    const [copiedPage] = await output.copyPages(sourceDocument, [page.pageNumber - 1])
-    applyPageRotation(copiedPage, page.rotation)
-    output.addPage(copiedPage)
+    await appendStudioPage(output, page, pdfs, documentCache)
   }
   return { filename, bytes: await output.save() }
 }

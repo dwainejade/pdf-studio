@@ -119,7 +119,12 @@
 
 .group-canvas .page-grid {
   min-height: calc(100vh - 230px);
-  padding-top: 20px;
+  --grid-pad-top: 20px;
+}
+
+/* Big documents render only the rows near the viewport; cards keep their natural height inside fixed rows. */
+.page-grid.is-windowed .page-card {
+  align-self: start;
 }
 
 .toolbar-brand {
@@ -614,7 +619,8 @@
   align-content: start;
   gap: 18px;
   min-height: calc(100vh - 180px);
-  padding-top: 26px;
+  --grid-pad-top: 26px;
+  padding-top: var(--grid-pad-top);
   perspective: 1000px;
   contain: layout style;
 }
@@ -745,6 +751,88 @@
   /* Individual `scale` composes with the rotate transform set inline, leaving a margin around the page. */
   scale: 0.9;
   image-rendering: auto;
+}
+
+.page-thumbnail-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Text added to a page: the frame is the unrotated page, turned into place by an inline transform. */
+.page-text-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.page-text-frame.is-static {
+  pointer-events: none;
+}
+
+.page-text-frame.is-adding {
+  cursor: text;
+}
+
+.page-text-box {
+  position: absolute;
+  margin: 0;
+  font-family: Helvetica, Arial, sans-serif;
+  line-height: 1.2;
+  white-space: pre;
+}
+
+.page-text-box.is-editable textarea {
+  display: block;
+  field-sizing: content;
+  min-width: 2em;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  outline: 1px dashed transparent;
+  outline-offset: 3px;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  letter-spacing: 0;
+  overflow: hidden;
+  resize: none;
+  white-space: pre;
+  cursor: text;
+}
+
+.page-text-box.is-editable:hover textarea {
+  outline-color: rgba(115, 95, 231, 0.55);
+}
+
+.page-text-box.is-editable.is-selected textarea {
+  outline: 1.5px solid var(--accent-strong);
+}
+
+.page-text-box.is-editable textarea::placeholder {
+  color: rgba(120, 120, 130, 0.7);
+}
+
+.page-text-grip {
+  position: absolute;
+  top: -22px;
+  left: -4px;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: var(--accent-strong);
+  color: #fff;
+  cursor: grab;
+  touch-action: none;
+}
+
+.page-text-grip:active {
+  cursor: grabbing;
 }
 
 .thumbnail-loading {
@@ -2615,4 +2703,60 @@ button.group-count-badge:hover {
   .page-grid.view-grid .page-label-input {
     padding-right: 8px;
   }
+}
+
+.page-text-box.is-editable {
+  pointer-events: auto;
+}
+
+.page-text-frame:not(.is-adding) {
+  pointer-events: none;
+}
+
+.page-action-button.is-active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.page-text-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 4px;
+}
+
+.page-text-size {
+  min-width: 42px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.page-text-swatch {
+  width: 18px;
+  height: 18px;
+  border: 1.5px solid rgb(var(--fg) / 0.35);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.page-text-swatch.is-active {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.export-progress,
+.export-success {
+  margin: 0;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.export-progress {
+  color: var(--text-muted);
+}
+
+.export-success {
+  color: var(--success-text);
 }

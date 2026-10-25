@@ -13,6 +13,7 @@ import {
 import { Check, FileText, Layers, Minus, Pencil, X } from 'lucide-react'
 import type { PageGroup, PdfPage, UploadedPdf } from '../../types/pdf'
 import { PageThumbnail } from './PageThumbnail'
+import { useGridWindow } from './useGridWindow'
 import {
   prepareDragOut,
   prepareDragOutFiles,
@@ -202,6 +203,7 @@ function GroupCard({
           file={sourcePdf.file}
           pageNumber={cover.pageNumber}
           rotation={cover.rotation}
+          textOverlay={cover.textBoxes ? { boxes: cover.textBoxes, page: cover } : undefined}
           onExpand={() => onViewPage(cover.id)}
         />
         <button
@@ -453,6 +455,7 @@ function PageCard({
         file={sourcePdf.file}
         pageNumber={page.pageNumber}
         rotation={page.rotation}
+        textOverlay={page.textBoxes ? { boxes: page.textBoxes, page } : undefined}
         onExpand={() => onViewPage(page.id)}
       >
         <span className="page-number-badge">{page.pageNumber}</span>
@@ -566,31 +569,33 @@ export function PageGrid({
   )
   const gridItems = useMemo(() => {
     const groupsById = new Map(groups.map((group) => [group.id, group]))
+    // One pass over every page, so large documents do not pay for a search per page.
+    const indexById = new Map<string, number>()
+    const membersByGroup = new Map<string, PdfPage[]>()
+    allPages.forEach((item, index) => {
+      indexById.set(item.id, index)
+      if (item.groupId) {
+        const members = membersByGroup.get(item.groupId)
+        if (members) members.push(item)
+        else membersByGroup.set(item.groupId, [item])
+      }
+    })
     const emittedGroups = new Set<string>()
     const items: Array<
       | { type: 'page'; page: PdfPage; index: number }
       | { type: 'group'; group: PageGroup; pages: PdfPage[]; index: number }
     > = []
     for (const page of pages) {
-      if (!page.groupId || expandedGroupId) {
-        items.push({ type: 'page', page, index: allPages.findIndex((item) => item.id === page.id) })
-        continue
-      }
-      const group = groupsById.get(page.groupId)
+      const group = page.groupId && !expandedGroupId ? groupsById.get(page.groupId) : undefined
       if (!group) {
-        items.push({ type: 'page', page, index: allPages.findIndex((item) => item.id === page.id) })
+        items.push({ type: 'page', page, index: indexById.get(page.id) ?? -1 })
         continue
       }
       if (emittedGroups.has(group.id)) continue
       emittedGroups.add(group.id)
-      const members = allPages.filter((item) => item.groupId === group.id)
+      const members = membersByGroup.get(group.id) ?? []
       if (members.length > 0) {
-        items.push({
-          type: 'group',
-          group,
-          pages: members,
-          index: allPages.findIndex((item) => item.id === members[0].id),
-        })
+        items.push({ type: 'group', group, pages: members, index: indexById.get(members[0].id) ?? -1 })
       }
     }
     return items
@@ -641,6 +646,7 @@ export function PageGrid({
   }
   const selectionAnchorId = useRef<string | null>(null)
   const gridRef = useRef<HTMLDivElement>(null)
+  const gridWindow = useGridWindow(gridRef, gridItems.length, pages.length > 0, thumbnailSize)
   const marqueeStartRef = useRef<{ x: number; y: number; additive: boolean } | null>(null)
   const [marquee, setMarquee] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
 
@@ -712,24 +718,34 @@ export function PageGrid({
     const bounds = grid.getBoundingClientRect()
     const endX = event.clientX - bounds.left
     const endY = event.clientY - bounds.top
-    const selectionRect = {
-      left: Math.min(start.x, endX) + bounds.left,
-      right: Math.max(start.x, endX) + bounds.left,
-      top: Math.min(start.y, endY) + bounds.top,
-      bottom: Math.max(start.y, endY) + bounds.top,
+    const selectionInGrid = {
+      left: Math.min(start.x, endX),
+      right: Math.max(start.x, endX),
+      top: Math.min(start.y, endY),
+      bottom: Math.max(start.y, endY),
     }
-    const selectedIds = Array.from(grid.querySelectorAll<HTMLElement>('[data-page-ids]'))
-      .filter((card) => {
-        const cardRect = card.getBoundingClientRect()
-        return (
-          cardRect.left < selectionRect.right &&
-          cardRect.right > selectionRect.left &&
-          cardRect.top < selectionRect.bottom &&
-          cardRect.bottom > selectionRect.top
-        )
-      })
-      .flatMap((card) => card.dataset.pageIds?.split(' ') ?? [])
-      .filter(Boolean)
+    const overlaps = (rect: { left: number; top: number; width: number; height: number }) =>
+      rect.left < selectionInGrid.right &&
+      rect.left + rect.width > selectionInGrid.left &&
+      rect.top < selectionInGrid.bottom &&
+      rect.top + rect.height > selectionInGrid.top
+    const idsOf = (item: (typeof gridItems)[number]) =>
+      item.type === 'group' ? item.pages.map((page) => page.id) : [item.page.id]
+    // With windowing, off-screen cards have no DOM, so every card is hit-tested from the grid's row and column layout.
+    const selectedIds = gridWindow.enabled
+      ? gridItems.flatMap((item, index) => (overlaps(gridWindow.getItemRect(index)) ? idsOf(item) : []))
+      : Array.from(grid.querySelectorAll<HTMLElement>('[data-page-ids]'))
+          .filter((card) => {
+            const cardRect = card.getBoundingClientRect()
+            return overlaps({
+              left: cardRect.left - bounds.left,
+              top: cardRect.top - bounds.top,
+              width: cardRect.width,
+              height: cardRect.height,
+            })
+          })
+          .flatMap((card) => card.dataset.pageIds?.split(' ') ?? [])
+          .filter(Boolean)
 
     onSetSelection(start.additive ? [...selectedPageIds, ...selectedIds] : selectedIds)
     if (selectedIds.length > 0) {
@@ -854,7 +870,20 @@ export function PageGrid({
     indicator.style.height = `${bounds.height}px`
     indicator.style.transform = `translate(${along}px, ${bounds.top - gridBounds.top}px)`
     indicator.style.opacity = '1'
-  }, [gridItems, draggingId, hoverSlot])
+  }, [gridItems, draggingId, hoverSlot, gridWindow.startIndex, gridWindow.endIndex])
+
+  // A card scrolled out of the rendered window is unmounted mid-drag and never fires its own dragend.
+  useEffect(() => {
+    if (!draggingId) return
+    const finish = () => window.setTimeout(endDrag, 0)
+    window.addEventListener('dragend', finish)
+    window.addEventListener('drop', finish)
+    return () => {
+      window.removeEventListener('dragend', finish)
+      window.removeEventListener('drop', finish)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draggingId])
 
   useEffect(() => {
     const forgetPositions = () => cardPositionsRef.current.clear()
@@ -868,10 +897,17 @@ export function PageGrid({
     return (
           <div
             ref={gridRef}
-            className={`page-grid view-grid${marquee ? ' is-marquee-selecting' : ''}`}
+            className={`page-grid view-grid${marquee ? ' is-marquee-selecting' : ''}${gridWindow.enabled ? ' is-windowed' : ''}`}
             style={{
               '--page-card-min-width': `${174 * thumbnailSize / 100}px`,
               '--page-preview-height': `${224 * thumbnailSize / 100}px`,
+              ...(gridWindow.enabled
+                ? {
+                    gridAutoRows: `${gridWindow.rowHeight}px`,
+                    paddingTop: `calc(var(--grid-pad-top) + ${gridWindow.paddingTop}px)`,
+                    paddingBottom: gridWindow.paddingBottom,
+                  }
+                : null),
             } as CSSProperties}
             aria-label="Document pages"
             onPointerDown={handleGridPointerDown}
@@ -895,7 +931,7 @@ export function PageGrid({
                 aria-hidden="true"
               />
             )}
-            {gridItems.map((item) => {
+            {gridItems.slice(gridWindow.startIndex, gridWindow.endIndex).map((item) => {
               if (item.type === 'group') {
                 const cover = item.pages[0]
                 const sourcePdf = sourcePdfById.get(cover.sourcePdfId)
@@ -959,7 +995,7 @@ export function PageGrid({
                 />
               )
             })}
-            {isProcessing && (
+            {isProcessing && gridWindow.endIndex >= gridItems.length && (
               <div className="loading-state" role="status">
                 <span className="loading-spinner" />
                 <span>Preparing more pages…</span>
