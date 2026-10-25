@@ -30,6 +30,8 @@ export interface PageTextBox {
   /** Size in PDF points. */
   fontSize: number
   color: string
+  /** Degrees clockwise, turning about the box's top-left corner. */
+  rotation?: number
 }
 
 export interface PdfPage {

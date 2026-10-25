@@ -65,16 +65,21 @@ async function drawPageText(output: PDFDocument, target: PDFPage, page: StudioPa
   // Where CSS puts the first baseline inside a line box of TEXT_LINE_HEIGHT.
   const baselineOffset = (TEXT_LINE_HEIGHT - 1.117) / 2 + 0.905
   for (const box of page.textBoxes) {
+    const angle = ((box.rotation ?? 0) * Math.PI) / 180
     encodable(font, box.text)
       .split('\n')
       .forEach((line, index) => {
         if (!line) return
+        // Each line starts below the box's top-left corner, and that offset turns with the box.
+        const down = (baselineOffset + index * TEXT_LINE_HEIGHT) * box.fontSize
         target.drawText(line, {
-          x: box.x * width,
-          y: height - box.y * height - (baselineOffset + index * TEXT_LINE_HEIGHT) * box.fontSize,
+          x: box.x * width - down * Math.sin(angle),
+          y: height - (box.y * height + down * Math.cos(angle)),
           size: box.fontSize,
           font,
           color: hexColor(box.color),
+          // Boxes turn clockwise on screen; PDF angles run counter-clockwise.
+          rotate: degrees(-(box.rotation ?? 0)),
         })
       })
   }

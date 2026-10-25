@@ -4,7 +4,7 @@ import { Check, ChevronLeft, ChevronRight, Minus, Pencil, Plus, RotateCcw, Rotat
 import { TextLayer } from 'pdfjs-dist'
 import type { PageTextBox, PdfPage, UploadedPdf } from '../../types/pdf'
 import { PageTextEditor } from './PageTextOverlay'
-import { DEFAULT_TEXT_SIZE, MAX_TEXT_SIZE, MIN_TEXT_SIZE, TEXT_COLORS } from '../../lib/pageText'
+import { DEFAULT_TEXT_SIZE, frameLayout, MAX_TEXT_SIZE, MIN_TEXT_SIZE, normalizeDegrees, rotateAboutCentre, TEXT_COLORS } from '../../lib/pageText'
 import {
   loadFullPageTextLayer,
   peekPageBitmap,
@@ -239,6 +239,25 @@ export function PagePreviewViewer({
     onUpdateText(
       page.id,
       textBoxes.filter((box) => box.text.trim() !== '').map((box) => (box.id === selectedTextBox.id ? { ...box, ...patch } : box)),
+    )
+  }
+
+  // Turns the selected text a step about its centre, using the box's rendered size.
+  const turnSelectedText = (delta: number) => {
+    if (!page || !selectedTextBox) return
+    const element = dialogRef.current?.querySelector<HTMLElement>(`[data-text-box-id="${selectedTextBox.id}"]`)
+    if (!element) return
+    const frame = frameLayout(page.rotation, surfaceWidth, surfaceHeight)
+    const turned = rotateAboutCentre(
+      selectedTextBox,
+      normalizeDegrees((selectedTextBox.rotation ?? 0) + delta),
+      { width: element.offsetWidth, height: element.offsetHeight },
+      frame,
+    )
+    setTextDraft(undefined)
+    onUpdateText(
+      page.id,
+      textBoxes.filter((box) => box.text.trim() !== '').map((box) => (box.id === selectedTextBox.id ? { ...box, ...turned } : box)),
     )
   }
 
@@ -599,7 +618,15 @@ export function PagePreviewViewer({
                 onAdd={addTextBox}
                 onSelect={(id) => patchText({ selectedId: id })}
                 onTextChange={(id, text) => editTextBoxes((box) => ({ ...box, text }), id)}
-                onMove={(id, x, y) => editTextBoxes((box) => ({ ...box, x, y }), id)}
+                onChange={(id, patch, commit) => {
+                  if (!commit) return editTextBoxes((box) => ({ ...box, ...patch }), id)
+                  if (!page) return
+                  setTextDraft(undefined)
+                  onUpdateText(
+                    page.id,
+                    textBoxes.filter((box) => box.text.trim() !== '').map((box) => (box.id === id ? { ...box, ...patch } : box)),
+                  )
+                }}
                 onCommit={commitText}
               />
             )}
@@ -701,6 +728,25 @@ export function PagePreviewViewer({
               onClick={() => styleSelectedText({ fontSize: Math.min(MAX_TEXT_SIZE, selectedTextBox.fontSize + 2) })}
             >
               <Plus size={14} />
+            </button>
+            <span className="page-viewer-toolbar-divider" aria-hidden="true" />
+            <button
+              type="button"
+              className="page-viewer-zoom-button"
+              aria-label="Rotate text left 15 degrees"
+              title="Rotate left 15°"
+              onClick={() => turnSelectedText(-15)}
+            >
+              <RotateCcw size={14} />
+            </button>
+            <button
+              type="button"
+              className="page-viewer-zoom-button"
+              aria-label="Rotate text right 15 degrees"
+              title="Rotate right 15°"
+              onClick={() => turnSelectedText(15)}
+            >
+              <RotateCw size={14} />
             </button>
             <span className="page-viewer-toolbar-divider" aria-hidden="true" />
             {TEXT_COLORS.map((color) => (

@@ -1,7 +1,14 @@
 import { useRef, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
-import { Move } from 'lucide-react'
+import { Move, RotateCw } from 'lucide-react'
 import type { PageTextBox, PdfPage } from '../../types/pdf'
-import { frameLayout, frameSizePt, screenToFrame, TEXT_LINE_HEIGHT } from '../../lib/pageText'
+import {
+  frameLayout,
+  frameSizePt,
+  normalizeDegrees,
+  rotateAboutCentre,
+  screenToFrame,
+  TEXT_LINE_HEIGHT,
+} from '../../lib/pageText'
 
 interface FrameProps {
   page: Pick<PdfPage, 'width' | 'height' | 'rotation'>
@@ -19,6 +26,7 @@ function boxStyle(box: PageTextBox, pxPerPt: number, frameWidth: number, frameHe
     top: box.y * frameHeight,
     color: box.color,
     fontSize: box.fontSize * pxPerPt,
+    transform: box.rotation ? `rotate(${box.rotation}deg)` : undefined,
   }
 }
 
@@ -56,10 +64,13 @@ interface PageTextEditorProps extends FrameProps {
   onAdd: (x: number, y: number) => void
   onSelect: (id: string | null) => void
   onTextChange: (id: string, text: string) => void
-  onMove: (id: string, x: number, y: number) => void
+  /** `commit` saves straight away (one undo step) instead of waiting for the edit to finish. */
+  onChange: (id: string, patch: Partial<Pick<PageTextBox, 'x' | 'y' | 'rotation'>>, commit?: boolean) => void
   /** Called when an edit is finished (blur or drag end) so it can be saved as one undo step. */
   onCommit: () => void
 }
+
+const DRAG_THRESHOLD_PX = 4
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
 
@@ -75,12 +86,22 @@ export function PageTextEditor({
   onAdd,
   onSelect,
   onTextChange,
-  onMove,
+  onChange,
   onCommit,
 }: PageTextEditorProps) {
   const layout = frameLayout(displayRotation, width, height)
   const pxPerPt = layout.width / frameSizePt(page).width
   const dragRef = useRef<{ id: string; startX: number; startY: number; x: number; y: number } | null>(null)
+  const turnRef = useRef<{
+    id: string
+    box: PageTextBox
+    size: { width: number; height: number }
+    centre: { x: number; y: number }
+    startAngle: number
+    startPoint: { x: number; y: number }
+    /** Stays false until the pointer travels far enough to count as a drag rather than a click. */
+    moved: boolean
+  } | null>(null)
 
   const startDrag = (event: ReactPointerEvent<HTMLElement>, box: PageTextBox) => {
     event.preventDefault()
@@ -93,13 +114,65 @@ export function PageTextEditor({
     const drag = dragRef.current
     if (!drag) return
     const delta = screenToFrame(layout.turn, event.clientX - drag.startX, event.clientY - drag.startY)
-    onMove(drag.id, clamp01(drag.x + delta.x / layout.width), clamp01(drag.y + delta.y / layout.height))
+    onChange(drag.id, {
+      x: clamp01(drag.x + delta.x / layout.width),
+      y: clamp01(drag.y + delta.y / layout.height),
+    })
   }
 
   const endDrag = () => {
     if (!dragRef.current) return
     dragRef.current = null
     onCommit()
+  }
+
+  // Rotating follows the pointer around the box's centre; holding Shift snaps to 15 degrees.
+  const startTurn = (event: ReactPointerEvent<HTMLElement>, box: PageTextBox) => {
+    const element = event.currentTarget.closest<HTMLElement>('.page-text-box')
+    if (!element) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const bounds = element.getBoundingClientRect()
+    const centre = { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 }
+    turnRef.current = {
+      id: box.id,
+      box,
+      size: { width: element.offsetWidth, height: element.offsetHeight },
+      centre,
+      startAngle: Math.atan2(event.clientY - centre.y, event.clientX - centre.x),
+      startPoint: { x: event.clientX, y: event.clientY },
+      moved: false,
+    }
+  }
+
+  const moveTurn = (event: ReactPointerEvent<HTMLElement>) => {
+    const turn = turnRef.current
+    if (!turn) return
+    if (!turn.moved) {
+      if (Math.hypot(event.clientX - turn.startPoint.x, event.clientY - turn.startPoint.y) < DRAG_THRESHOLD_PX) return
+      turn.moved = true
+    }
+    const angle = Math.atan2(event.clientY - turn.centre.y, event.clientX - turn.centre.x)
+    let rotation = (turn.box.rotation ?? 0) + ((angle - turn.startAngle) * 180) / Math.PI
+    if (event.shiftKey) rotation = Math.round(rotation / 15) * 15
+    // Landing close to a right angle feels better than a degree or two off it.
+    const nearest = Math.round(rotation / 90) * 90
+    if (Math.abs(rotation - nearest) < 3) rotation = nearest
+    onChange(turn.id, rotateAboutCentre(turn.box, normalizeDegrees(rotation), turn.size, layout))
+  }
+
+  // Turns a box a quarter clockwise about its centre.
+  const quarterTurn = (box: PageTextBox, size: { width: number; height: number }) =>
+    onChange(box.id, rotateAboutCentre(box, normalizeDegrees((box.rotation ?? 0) + 90), size, layout), true)
+
+  // Releasing the handle without dragging is a click: turn the box 90 degrees.
+  const endTurn = () => {
+    const turn = turnRef.current
+    if (!turn) return
+    turnRef.current = null
+    if (turn.moved) onCommit()
+    else quarterTurn(turn.box, turn.size)
   }
 
   return (
@@ -125,6 +198,7 @@ export function PageTextEditor({
           <div
             key={box.id}
             className={`page-text-box is-editable${isSelected ? ' is-selected' : ''}`}
+            data-text-box-id={box.id}
             style={boxStyle(box, pxPerPt, layout.width, layout.height)}
           >
             <textarea
@@ -144,18 +218,39 @@ export function PageTextEditor({
               }}
             />
             {isSelected && (
-              <button
-                type="button"
-                className="page-text-grip"
-                aria-label="Drag to move text"
-                title="Drag to move"
-                onPointerDown={(event) => startDrag(event, box)}
-                onPointerMove={moveDrag}
-                onPointerUp={endDrag}
-                onPointerCancel={endDrag}
-              >
-                <Move size={12} />
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="page-text-grip is-move"
+                  aria-label="Drag to move text"
+                  title="Drag to move"
+                  onPointerDown={(event) => startDrag(event, box)}
+                  onPointerMove={moveDrag}
+                  onPointerUp={endDrag}
+                  onPointerCancel={endDrag}
+                >
+                  <Move size={12} />
+                </button>
+                <button
+                  type="button"
+                  className="page-text-grip is-rotate"
+                  aria-label="Drag to rotate text"
+                  title="Click to turn 90°, or drag to rotate (Shift snaps to 15°)"
+                  onPointerDown={(event) => startTurn(event, box)}
+                  onPointerMove={moveTurn}
+                  onPointerUp={endTurn}
+                  onPointerCancel={endTurn}
+                  onClick={(event) => {
+                    // Pointer clicks are handled on release; this covers the keyboard (Enter or Space).
+                    if (event.detail !== 0) return
+                    const element = event.currentTarget.closest<HTMLElement>('.page-text-box')
+                    if (!element) return
+                    quarterTurn(box, { width: element.offsetWidth, height: element.offsetHeight })
+                  }}
+                >
+                  <RotateCw size={12} />
+                </button>
+              </>
             )}
           </div>
         )
