@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { useDropzone, type FileRejection } from 'react-dropzone'
 import { FileUp, LoaderCircle } from 'lucide-react'
+import { getDroppedFiles } from '../../lib/dropFiles'
 import type { UploadError } from '../../types/pdf'
 
 interface UploadZoneProps {
@@ -35,6 +36,7 @@ export function UploadZone({ isProcessing, onFiles, onRejected }: UploadZoneProp
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop: handleDrop,
+    getFilesFromEvent: getDroppedFiles,
     accept: {
       'application/pdf': ['.pdf'],
       'image/jpeg': ['.jpg', '.jpeg'],

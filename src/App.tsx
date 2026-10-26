@@ -25,6 +25,7 @@ import { DocumentInspector } from './components/page-grid/DocumentInspector'
 import { PagePreviewViewer } from './components/page-grid/PagePreviewViewer'
 import { ExportDrawer } from './components/export/ExportDrawer'
 import { ImageImportDialog } from './components/uploader/ImageImportDialog'
+import { getDroppedFiles } from './lib/dropFiles'
 import { loadPdfPages } from './lib/pdfLoader'
 import { loadImagePage, type ImagePageOrientation } from './lib/imagePdfLoader'
 import { loadWorkspace, savePdfFile, saveWorkspace } from './lib/workspaceDatabase'
@@ -498,6 +499,7 @@ function App() {
   )
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
+    getFilesFromEvent: getDroppedFiles,
     accept: {
       'application/pdf': ['.pdf'],
       'image/jpeg': ['.jpg', '.jpeg'],
