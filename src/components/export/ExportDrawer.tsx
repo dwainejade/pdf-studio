@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { FolderOpen, Printer, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { ArrowDownToLine, FolderOpen, Printer, X } from 'lucide-react'
 import type { PageGroup, PdfPage, UploadedPdf } from '../../types/pdf'
 import {
   canChooseExportDirectory,
@@ -9,6 +9,19 @@ import {
 } from '../../lib/export/filesystem'
 import { mergedFilename } from '../../lib/export/filenames'
 import { printPdfPages } from '../../lib/export/printing'
+import {
+  compressPdf,
+  COMPRESSION_OPTIONS,
+  formatBytes,
+  type CompressionLevel,
+} from '../../lib/export/compress'
+import {
+  createImageExports,
+  IMAGE_DPI_OPTIONS,
+  IMAGE_FORMAT_OPTIONS,
+  zipImageExports,
+  type ImageFormat,
+} from '../../lib/export/images'
 
 interface ExportDrawerProps {
   pages: PdfPage[]
@@ -17,7 +30,7 @@ interface ExportDrawerProps {
   onClose: () => void
 }
 
-type ExportMode = 'merged' | 'groups' | 'individual'
+type ExportMode = 'merged' | 'groups' | 'individual' | 'images'
 
 export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps) {
   const [mode, setMode] = useState<ExportMode>('merged')
@@ -30,13 +43,45 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
     )
   })?.name
   const [filename, setFilename] = useState(groupName ?? 'Merged_Document')
+  const [zipFilename, setZipFilename] = useState(groupName ?? 'Page_Images')
+  const [imageFormat, setImageFormat] = useState<ImageFormat>('png')
+  const [imageDpi, setImageDpi] = useState(150)
   const [directory, setDirectory] = useState<ExportDirectoryHandle>()
   const [error, setError] = useState<string>()
   const [printError, setPrintError] = useState<string>()
   const [isExporting, setIsExporting] = useState(false)
   const [isPrinting, setIsPrinting] = useState(false)
+  const [compression, setCompression] = useState<CompressionLevel>('none')
+  const [progress, setProgress] = useState<string>()
+  const [resultNote, setResultNote] = useState<string>()
   const selectedPages = useMemo(() => new Set(pages.map((page) => page.id)), [pages])
   const canPickFolder = canChooseExportDirectory()
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onClose])
+
+  const groupedIds = new Set(
+    pages.filter((page) => page.groupId && groups.some((group) => group.id === page.groupId)).map((page) => page.groupId),
+  )
+  const ungroupedCount = pages.filter((page) => !page.groupId).length
+  const zipFile = `${mergedFilename(zipFilename).replace(/\.pdf$/i, '')}.zip`
+  // Several images are zipped for a single download, unless a folder was chosen to receive them directly.
+  const imagesAreZipped = mode === 'images' && pages.length > 1 && !directory
+  const outputSummary =
+    mode === 'images'
+      ? imagesAreZipped
+        ? `1 file: ${zipFile} (${pages.length} ${imageFormat === 'png' ? 'PNG' : 'JPG'} images, ${imageDpi} dpi)`
+        : `${pages.length} ${imageFormat === 'png' ? 'PNG' : 'JPG'} ${pages.length === 1 ? 'image' : 'images'}, ${imageDpi} dpi`
+      : mode === 'merged'
+      ? `1 file: ${mergedFilename(filename)} (${pages.length} ${pages.length === 1 ? 'page' : 'pages'})`
+      : mode === 'groups'
+        ? `${groupedIds.size + ungroupedCount} files: ${groupedIds.size} ${groupedIds.size === 1 ? 'group' : 'groups'}${ungroupedCount > 0 ? ` and ${ungroupedCount} separate ${ungroupedCount === 1 ? 'page' : 'pages'}` : ''}`
+        : `${pages.length} ${pages.length === 1 ? 'file' : 'files'}, one page each`
 
   const selectFolder = async () => {
     setError(undefined)
@@ -50,28 +95,65 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
 
   const exportFiles = async () => {
     setError(undefined)
+    setResultNote(undefined)
     setIsExporting(true)
     try {
-      if (mode === 'merged') {
+      let fileCount = 0
+      let originalTotal = 0
+      let finalTotal = 0
+      // Every output goes through the chosen compression before it is saved.
+      const saveFile = async (bytes: Uint8Array, filename: string, label: string) => {
+        setProgress(compression === 'none' ? undefined : `Compressing ${label}…`)
+        const result = await compressPdf(bytes, compression, (done, total) =>
+          setProgress(`Compressing ${label}: page ${done} of ${total}…`),
+        )
+        originalTotal += result.originalSize
+        finalTotal += result.bytes.byteLength
+        fileCount += 1
+        await saveExportFile(result.bytes, filename, directory)
+      }
+
+      if (mode === 'images') {
+        const images = await createImageExports(pages, pdfs, { format: imageFormat, dpi: imageDpi }, (done, total) =>
+          setProgress(`Rendering page ${done} of ${total}…`),
+        )
+        if (imagesAreZipped) {
+          setProgress('Zipping images…')
+          const archive = await zipImageExports(images)
+          await saveExportFile(archive, zipFile, undefined, 'application/zip')
+          fileCount = 1
+          finalTotal = archive.byteLength
+        } else {
+          for (const image of images) {
+            await saveExportFile(image.bytes, image.filename, directory, image.mimeType)
+            fileCount += 1
+            finalTotal += image.bytes.byteLength
+          }
+        }
+      } else if (mode === 'merged') {
         const { createMergedPdf } = await import('../../lib/export/merged')
         const bytes = await createMergedPdf(pages, pdfs)
-        await saveExportFile(bytes, mergedFilename(filename), directory)
+        await saveFile(bytes, mergedFilename(filename), mergedFilename(filename))
       } else if (mode === 'groups') {
         const { createGroupPdfs } = await import('../../lib/export/individual')
         const files = await createGroupPdfs(pages, pdfs, groups)
-        for (const file of files) {
-          await saveExportFile(file.bytes, file.filename, directory)
-        }
+        for (const file of files) await saveFile(file.bytes, file.filename, file.filename)
       } else {
         const { createIndividualPdfs } = await import('../../lib/export/individual')
         const files = await createIndividualPdfs(pages, pdfs)
-        for (const file of files) {
-          await saveExportFile(file.bytes, file.filename, directory)
-        }
+        for (const file of files) await saveFile(file.bytes, file.filename, file.filename)
       }
+
+      const files = `${fileCount} ${fileCount === 1 ? 'file' : 'files'}`
+      setResultNote(
+        compression !== 'none' && finalTotal < originalTotal
+          ? `Exported ${files}: ${formatBytes(originalTotal)} → ${formatBytes(finalTotal)} (${Math.round((1 - finalTotal / originalTotal) * 100)}% smaller)`
+          : `Exported ${files} (${formatBytes(finalTotal)})${compression !== 'none' ? '. Already as small as it gets, so it was left as it was.' : ''}`,
+      )
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The selected pages could not be exported.')
     } finally {
+      setProgress(undefined)
       setIsExporting(false)
     }
   }
@@ -160,7 +242,110 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
               <small>One selected page per file</small>
             </span>
           </label>
+          <label className={`export-mode-option${mode === 'images' ? ' is-active' : ''}`}>
+            <input
+              type="radio"
+              name="export-mode"
+              value="images"
+              checked={mode === 'images'}
+              onChange={() => setMode('images')}
+            />
+            <span className="export-radio" />
+            <span>
+              <strong>Images (PNG or JPG)</strong>
+              <small>One image per page; several are zipped together</small>
+            </span>
+          </label>
         </fieldset>
+
+        {mode === 'images' && (
+          <>
+            <fieldset className="export-mode-options">
+              <legend>Image format</legend>
+              {IMAGE_FORMAT_OPTIONS.map((option) => (
+                <label
+                  key={option.format}
+                  className={`export-mode-option${imageFormat === option.format ? ' is-active' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="export-image-format"
+                    value={option.format}
+                    checked={imageFormat === option.format}
+                    onChange={() => setImageFormat(option.format)}
+                  />
+                  <span className="export-radio" />
+                  <span>
+                    <strong>{option.title}</strong>
+                    <small>{option.detail}</small>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            <fieldset className="export-mode-options">
+              <legend>Resolution</legend>
+              {IMAGE_DPI_OPTIONS.map((option) => (
+                <label
+                  key={option.dpi}
+                  className={`export-mode-option${imageDpi === option.dpi ? ' is-active' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="export-image-dpi"
+                    value={option.dpi}
+                    checked={imageDpi === option.dpi}
+                    onChange={() => setImageDpi(option.dpi)}
+                  />
+                  <span className="export-radio" />
+                  <span>
+                    <strong>{option.title}</strong>
+                    <small>{option.detail}</small>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          </>
+        )}
+
+        {mode !== 'images' && (
+        <fieldset className="export-mode-options">
+          <legend>File size</legend>
+          {COMPRESSION_OPTIONS.map((option) => (
+            <label
+              key={option.level}
+              className={`export-mode-option${compression === option.level ? ' is-active' : ''}`}
+            >
+              <input
+                type="radio"
+                name="export-compression"
+                value={option.level}
+                checked={compression === option.level}
+                onChange={() => setCompression(option.level)}
+              />
+              <span className="export-radio" />
+              <span>
+                <strong>{option.title}</strong>
+                <small>{option.detail}</small>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        )}
+
+        {imagesAreZipped && (
+          <label className="export-filename">
+            <span>ZIP filename</span>
+            <div className="export-filename-input">
+              <input
+                value={zipFilename}
+                onChange={(event) => setZipFilename(event.target.value)}
+                aria-label="ZIP filename"
+                placeholder="Page_Images"
+              />
+              <span>.zip</span>
+            </div>
+          </label>
+        )}
 
         {mode === 'merged' && (
           <label className="export-filename">
@@ -190,6 +375,13 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
           )}
         </div>
 
+        <p className="export-summary">
+          <span>Will create</span>
+          {outputSummary}
+        </p>
+
+        {progress && <p className="export-progress" role="status">{progress}</p>}
+        {resultNote && !isExporting && <p className="export-success" role="status">{resultNote}</p>}
         {error && <p className="export-error" role="alert">{error}</p>}
         {printError && <p className="export-error" role="alert">{printError}</p>}
         <div className="export-actions">
@@ -205,11 +397,14 @@ export function ExportDrawer({ pages, pdfs, groups, onClose }: ExportDrawerProps
           <button
             className="export-submit-button"
             type="button"
-            disabled={pages.length === 0 || isExporting || (mode === 'merged' && !filename.trim())}
+            disabled={pages.length === 0 || isExporting || (mode === 'merged' && !filename.trim()) || (imagesAreZipped && !zipFilename.trim())}
             onClick={() => void exportFiles()}
           >
+            {!isExporting && <ArrowDownToLine size={16} />}
             {isExporting
-              ? 'Preparing export…'
+              ? progress ? 'Working…' : 'Preparing export…'
+              : mode === 'images'
+                ? imagesAreZipped ? 'Export ZIP' : 'Export Images'
               : mode === 'merged'
                 ? 'Export Merged PDF'
                 : mode === 'groups'

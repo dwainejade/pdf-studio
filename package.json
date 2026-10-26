@@ -22,6 +22,7 @@
     "react-dom": "^19.3.1",
     "react-dropzone": "^20.1.4",
     "tailwindcss": "^4.3.3",
+    "utif2": "^4.1.0",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

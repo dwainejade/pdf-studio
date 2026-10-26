@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { PageGroup, PdfPage, UploadedPdf } from '../types/pdf'
+import type { PageGroup, PageTextBox, PdfPage, UploadedPdf } from '../types/pdf'
 
 const HISTORY_LIMIT = 50
 
@@ -14,7 +14,7 @@ interface StoreSnapshot {
 interface PdfStore extends StoreSnapshot {
   past: StoreSnapshot[]
   future: StoreSnapshot[]
-  addPdf: (pdf: UploadedPdf, pages: PdfPage[]) => void
+  addPdf: (pdf: UploadedPdf, pages: PdfPage[], afterPageId?: string) => void
   restoreWorkspace: (workspace: StoreSnapshot) => void
   reorderPages: (activeId: string, overId: string, side?: 'before' | 'after') => void
   togglePageSelection: (pageId: string) => void
@@ -24,7 +24,9 @@ interface PdfStore extends StoreSnapshot {
   duplicatePages: (pageIds: string[]) => string | undefined
   rotatePages: (pageIds: string[], delta: number) => void
   renamePage: (pageId: string, label: string) => void
+  setPageTextBoxes: (pageId: string, textBoxes: PageTextBox[]) => void
   groupPages: (pageIds: string[]) => void
+  addPagesToGroup: (pageIds: string[], groupId: string) => void
   renameGroup: (groupId: string, name: string) => void
   ungroupPages: (pageIds: string[]) => void
   undo: () => void
@@ -84,14 +86,28 @@ export const usePdfStore = create<PdfStore>((set, get) => {
     selectedPageIds: [],
     past: [],
     future: [],
-    addPdf: (pdf, pages) => {
+    addPdf: (pdf, pages, afterPageId) => {
       const current = get()
+      // Inserted pages land after the reference page. Unless they join its group, they go after the whole group so it stays contiguous.
+      const referenceIndex = afterPageId ? current.pages.findIndex((page) => page.id === afterPageId) : -1
+      const referenceGroupId = referenceIndex >= 0 ? current.pages[referenceIndex].groupId : undefined
+      const joinsGroup = Boolean(referenceGroupId) && pages[0]?.groupId === referenceGroupId
+      let insertAt = current.pages.length
+      if (referenceIndex >= 0) {
+        insertAt = referenceIndex + 1
+        while (!joinsGroup && referenceGroupId && current.pages[insertAt]?.groupId === referenceGroupId) {
+          insertAt += 1
+        }
+      }
+      const inserted =
+        referenceIndex >= 0 && !joinsGroup ? pages.map(({ groupId: _groupId, ...page }) => page) : pages
       commit({
         pdfs: [...current.pdfs, pdf],
-        pages: [...current.pages, ...pages],
+        pages: [...current.pages.slice(0, insertAt), ...inserted, ...current.pages.slice(insertAt)],
         groups: current.groups,
         nextGroupNumber: current.nextGroupNumber,
-        selectedPageIds: current.selectedPageIds,
+        selectedPageIds:
+          referenceIndex >= 0 ? inserted.map((page) => page.id) : current.selectedPageIds,
       })
     },
     restoreWorkspace: (workspace) =>
@@ -234,6 +250,14 @@ export const usePdfStore = create<PdfStore>((set, get) => {
       )
       commit({ ...snapshot(current), pages })
     },
+    setPageTextBoxes: (pageId, textBoxes) => {
+      const current = get()
+      if (!current.pages.some((page) => page.id === pageId)) return
+      const pages = current.pages.map((page) =>
+        page.id === pageId ? { ...page, textBoxes: textBoxes.length > 0 ? textBoxes : undefined } : page,
+      )
+      commit({ ...snapshot(current), pages })
+    },
     groupPages: (pageIds) => {
       const current = get()
       const idsToGroup = new Set(pageIds)
@@ -273,6 +297,25 @@ export const usePdfStore = create<PdfStore>((set, get) => {
       const groups = current.groups.filter((group) => remainingGroupIds.has(group.id))
       groups.push({ id, name: `Group ${groupNumber}` })
       commit({ ...snapshot(current), pages, groups, nextGroupNumber: groupNumber })
+    },
+    // Loose pages join an existing group, landing right after its last page. Pages already in a group stay where they are.
+    addPagesToGroup: (pageIds, groupId) => {
+      const current = get()
+      const wanted = new Set(pageIds)
+      const moving = current.pages.filter((page) => wanted.has(page.id) && !page.groupId)
+      if (moving.length === 0 || !current.groups.some((group) => group.id === groupId)) return
+      const movingIds = new Set(moving.map((page) => page.id))
+      const rest = current.pages.filter((page) => !movingIds.has(page.id))
+      let lastMember = -1
+      rest.forEach((page, index) => {
+        if (page.groupId === groupId) lastMember = index
+      })
+      if (lastMember < 0) return
+      const joined = moving.map((page) => ({ ...page, groupId }))
+      commit({
+        ...snapshot(current),
+        pages: [...rest.slice(0, lastMember + 1), ...joined, ...rest.slice(lastMember + 1)],
+      })
     },
     renameGroup: (groupId, name) => {
       const normalizedName = name.trim()

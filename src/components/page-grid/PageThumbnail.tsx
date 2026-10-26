@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { FileWarning, Maximize2 } from 'lucide-react'
+import type { PageTextBox, PdfPage } from '../../types/pdf'
+import { PageTextOverlay } from './PageTextOverlay'
 import { isRenderCancelled, loadPageBitmap, thumbnailBaseRotation } from '../../lib/pdfThumbnailCache'
 
 const BOX_STEP_PX = 80
@@ -12,6 +14,8 @@ interface PageThumbnailProps {
   rotation: number
   className?: string
   onExpand?: () => void
+  /** Text added to the page, drawn over the rendered pixels. */
+  textOverlay?: { boxes: PageTextBox[]; page: Pick<PdfPage, 'width' | 'height' | 'rotation'> }
   children?: ReactNode
 }
 
@@ -23,6 +27,7 @@ export function PageThumbnail({
   rotation,
   className,
   onExpand,
+  textOverlay,
   children,
 }: PageThumbnailProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -166,13 +171,23 @@ export function PageThumbnail({
       className={`page-preview${hasError ? ' has-preview-error' : ''}${className ? ` ${className}` : ''}`}
       aria-label={`Preview for page ${pageNumber} of ${sourcePdfName}`}
     >
-      <canvas
-        ref={canvasRef}
-        className="page-thumbnail"
-        role="img"
-        aria-label={`Page ${pageNumber} of ${sourcePdfName}`}
-        style={canvasStyle}
-      />
+      <div className="page-thumbnail" style={canvasStyle}>
+        <canvas
+          ref={canvasRef}
+          className="page-thumbnail-canvas"
+          role="img"
+          aria-label={`Page ${pageNumber} of ${sourcePdfName}`}
+        />
+        {textOverlay && hasImage && (
+          <PageTextOverlay
+            boxes={textOverlay.boxes}
+            page={textOverlay.page}
+            displayRotation={baseRotation}
+            width={fitWidth}
+            height={fitHeight}
+          />
+        )}
+      </div>
       {hasImage ? null : hasError ? (
         <span className="thumbnail-error" role="img" aria-label="Preview could not be rendered">
           <FileWarning size={22} />

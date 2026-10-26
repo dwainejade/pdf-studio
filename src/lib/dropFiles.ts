@@ -1,8 +1,9 @@
-const MIME_BY_EXTENSION: Record<string, string> = {
-  pdf: 'application/pdf',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  png: 'image/png',
+import { ACCEPTED_FILES } from './fileKinds'
+
+// First listed type wins for extensions shared by several types (e.g. .zip).
+const MIME_BY_EXTENSION: Record<string, string> = {}
+for (const [type, extensions] of Object.entries(ACCEPTED_FILES)) {
+  for (const extension of extensions) MIME_BY_EXTENSION[extension.slice(1)] ??= type
 }
 
 const extensionOf = (name: string) => name.split('.').pop()?.toLowerCase() ?? ''

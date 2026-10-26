@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { groupWithAnimation, removeWithAnimation, ungroupWithAnimation } from './lib/pageAnimations'
 import { useDropzone, type FileRejection } from 'react-dropzone'
 import {
   AlertCircle,
@@ -6,33 +7,55 @@ import {
   ArrowDownToLine,
   Check,
   Copy,
+  FilePlus,
   FileStack,
   FileText,
   Info,
   Layers,
+  LockKeyhole,
+  Monitor,
+  Moon,
   Pencil,
+  Plus,
   Redo2,
   RotateCw,
   Search,
+  Sun,
   Trash2,
   Undo2,
   X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
-import { PageGrid } from './components/page-grid/PageGrid'
+import { PageGrid, RENAME_EVENT } from './components/page-grid/PageGrid'
 import { DocumentInspector } from './components/page-grid/DocumentInspector'
 import { PagePreviewViewer } from './components/page-grid/PagePreviewViewer'
 import { ExportDrawer } from './components/export/ExportDrawer'
 import { ImageImportDialog } from './components/uploader/ImageImportDialog'
 import { getDroppedFiles } from './lib/dropFiles'
 import { loadPdfPages } from './lib/pdfLoader'
+import { A4_HEIGHT, A4_WIDTH, createBlankPage } from './lib/blankPage'
+import { extractArchive } from './lib/archiveLoader'
+import { mapInOrder } from './lib/concurrency'
+import { usePresence } from './lib/usePresence'
+import { ACCEPTED_FILES, classifyFile, UNSUPPORTED_MESSAGE } from './lib/fileKinds'
+import { loadTiffDocument } from './lib/tiffLoader'
 import { loadImagePage, type ImagePageOrientation } from './lib/imagePdfLoader'
 import { loadWorkspace, savePdfFile, saveWorkspace } from './lib/workspaceDatabase'
 import { usePdfStore } from './store/pdfStore'
 import { useViewPreferences } from './store/viewPreferences'
 import type { UploadError } from './types/pdf'
 import './App.css'
+
+// Files opened with the installed app arrive through the browser's launch queue (Chromium PWAs only).
+interface LaunchParams {
+  files: Array<{ getFile: () => Promise<File> }>
+}
+declare global {
+  interface Window {
+    launchQueue?: { setConsumer: (consumer: (params: LaunchParams) => void) => void }
+  }
+}
 
 function App() {
   const [processingCount, setProcessingCount] = useState(0)
@@ -77,112 +100,23 @@ function App() {
   const duplicatePages = usePdfStore((state) => state.duplicatePages)
   const rotatePages = usePdfStore((state) => state.rotatePages)
   const renamePage = usePdfStore((state) => state.renamePage)
+  const setPageTextBoxes = usePdfStore((state) => state.setPageTextBoxes)
   const groupPages = usePdfStore((state) => state.groupPages)
-  const groupPagesWithAnimation = useCallback((pageIds: string[]) => {
-    const grid = document.querySelector<HTMLElement>('.page-grid')
-    const pageIdSet = new Set(pageIds)
-    const sourceCards = grid
-      ? Array.from(grid.querySelectorAll<HTMLElement>('[data-page-ids]')).filter((card) =>
-          (card.dataset.pageIds ?? '').split(' ').some((pageId) => pageIdSet.has(pageId)),
-        )
-      : []
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const flyingCards = reducedMotion
-      ? []
-      : sourceCards.map((card) => {
-          const rect = card.getBoundingClientRect()
-          const clone = card.cloneNode(true) as HTMLElement
-          clone.setAttribute('aria-hidden', 'true')
-          clone.inert = true
-          clone.draggable = false
-          clone.tabIndex = -1
-          const sourceCanvases = card.querySelectorAll('canvas')
-          const cloneCanvases = clone.querySelectorAll('canvas')
-          sourceCanvases.forEach((canvas, index) => {
-            const copy = cloneCanvases[index]
-            if (copy) copy.getContext('2d')?.drawImage(canvas, 0, 0)
-          })
-          Object.assign(clone.style, {
-            position: 'fixed',
-            left: `${rect.left}px`,
-            top: `${rect.top}px`,
-            width: `${rect.width}px`,
-            height: `${rect.height}px`,
-            margin: '0',
-            zIndex: '1',
-            pointerEvents: 'none',
-            transformOrigin: 'top left',
-            willChange: 'transform, opacity',
-          })
-          document.body.append(clone)
-          return { clone, rect }
-        })
-
-    if (flyingCards.length > 0 && grid) grid.style.zIndex = '2'
-    groupPages(pageIds)
-    if (flyingCards.length === 0) return
-    window.requestAnimationFrame(() => {
-      const target = Array.from(
-        document.querySelectorAll<HTMLElement>('.page-grid .group-card'),
-      ).find((card) => {
-        const targetIds = (card.dataset.pageIds ?? '').split(' ')
-        return targetIds.length === pageIdSet.size && targetIds.every((id) => pageIdSet.has(id))
-      })
-      if (!target) {
-        flyingCards.forEach(({ clone }) => clone.remove())
-        grid?.style.removeProperty('z-index')
-        return
-      }
-      const targetRect = target.getBoundingClientRect()
-      let longestFlight = 0
-      flyingCards.forEach(({ clone, rect }, index) => {
-        const duration = 620 + Math.min(index, 5) * 55
-        const delay = Math.min(index, 5) * 45
-        longestFlight = Math.max(longestFlight, duration + delay)
-        const animation = clone.animate(
-          [
-            { transform: 'translate(0, 0) scale(1)', opacity: 1, filter: 'blur(0)' },
-            {
-              transform: `translate(${targetRect.left - rect.left}px, ${targetRect.top - rect.top}px) scale(${targetRect.width / rect.width}, ${targetRect.height / rect.height})`,
-              opacity: 0.8,
-              filter: 'blur(0)',
-              offset: 0.68,
-            },
-            {
-              transform: `translate(${targetRect.left - rect.left + targetRect.width * 0.32}px, ${targetRect.top - rect.top + targetRect.height * 0.32}px) scale(0.28)`,
-              opacity: 0,
-              filter: 'blur(2px)',
-            },
-          ],
-          {
-            duration,
-            delay,
-            easing: 'cubic-bezier(0.22, 0.75, 0.25, 1)',
-            fill: 'forwards',
-          },
-        )
-        animation.onfinish = () => clone.remove()
-      })
-      const settleAnimation = target.animate(
-        [
-          { transform: 'scale(0.94)', boxShadow: '0 0 0 rgba(158, 135, 255, 0)' },
-          { transform: 'scale(1.035)', boxShadow: '0 0 34px rgba(158, 135, 255, 0.48)', offset: 0.55 },
-          { transform: 'scale(1)', boxShadow: '0 0 0 rgba(158, 135, 255, 0)' },
-        ],
-        { duration: 560, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' },
-      )
-      settleAnimation.onfinish = () => {
-        if (longestFlight <= 560) grid?.style.removeProperty('z-index')
-      }
-      if (longestFlight > 560) {
-        window.setTimeout(() => grid?.style.removeProperty('z-index'), longestFlight)
-      }
-    })
-  }, [groupPages])
+  const addPagesToGroup = usePdfStore((state) => state.addPagesToGroup)
+  const groupPagesWithAnimation = useCallback(
+    (pageIds: string[]) => groupWithAnimation(pageIds, () => groupPages(pageIds)),
+    [groupPages],
+  )
   const renameGroup = usePdfStore((state) => state.renameGroup)
-  const ungroupPages = usePdfStore((state) => state.ungroupPages)
+  const ungroupPagesInStore = usePdfStore((state) => state.ungroupPages)
+  const ungroupPages = useCallback(
+    (pageIds: string[]) => ungroupWithAnimation(pageIds, () => ungroupPagesInStore(pageIds)),
+    [ungroupPagesInStore],
+  )
   const undo = usePdfStore((state) => state.undo)
   const redo = usePdfStore((state) => state.redo)
+  const theme = useViewPreferences((state) => state.theme)
+  const setTheme = useViewPreferences((state) => state.setTheme)
   const thumbnailSize = useViewPreferences((state) => state.thumbnailSize)
   const searchQuery = useViewPreferences((state) => state.searchQuery)
   const setThumbnailSize = useViewPreferences((state) => state.setThumbnailSize)
@@ -404,87 +338,175 @@ function App() {
         id: crypto.randomUUID(),
         fileName: rejection.file.name,
         message: rejection.errors.some((error) => error.code === 'file-invalid-type')
-          ? 'Only PDF, JPEG, and PNG files are supported.'
+          ? UNSUPPORTED_MESSAGE
           : rejection.errors.map((error) => error.message).join(' '),
       })),
     ])
   }, [])
 
-  const handleFiles = useCallback(async (files: File[]) => {
-    const imageFiles = files.filter((file) =>
-      file.type.startsWith('image/') || /\.(jpe?g|png)$/i.test(file.name),
-    )
-    const pdfFiles = files.filter((file) => !imageFiles.includes(file))
-    if (imageFiles.length > 0) {
-      setPendingImageFiles((current) => [...current, ...imageFiles])
-    }
-    if (pdfFiles.length === 0) return
-    setProcessingCount((count) => count + pdfFiles.length)
+  const addBlankPage = useCallback(
+    async (afterPageId?: string) => {
+      const selected = pages.filter((page) => selectedPageIds.includes(page.id))
+      const reference =
+        pages.find((page) => page.id === afterPageId) ??
+        selected[selected.length - 1] ??
+        (activeGroup ? activeGroupPages[activeGroupPages.length - 1] : undefined)
+      // The blank page matches its neighbour's unrotated size, falling back to A4.
+      const isSideways = reference ? Math.round(reference.rotation / 90) % 2 !== 0 : false
+      const width = reference ? (isSideways ? reference.height : reference.width) : A4_WIDTH
+      const height = reference ? (isSideways ? reference.width : reference.height) : A4_HEIGHT
+      try {
+        const { source, page } = await createBlankPage(width, height)
+        await savePdfFile(source)
+        addPdf(source, [activeGroup ? { ...page, groupId: activeGroup.id } : page], reference?.id)
+      } catch (error) {
+        setErrors((current) => [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            fileName: 'Blank page',
+            message: error instanceof Error ? error.message : 'A blank page could not be added.',
+          },
+        ])
+      }
+    },
+    [activeGroup, activeGroupPages, addPdf, pages, selectedPageIds],
+  )
 
-    await Promise.all(
-      pdfFiles.map(async (file) => {
-        const id = crypto.randomUUID()
-        const importedAt = new Date().toISOString()
+  const reportError = useCallback((fileName: string, message: string) => {
+    setErrors((current) => [...current, { id: crypto.randomUUID(), fileName, message }])
+  }, [])
+
+  const handleFiles = useCallback(async (incoming: File[]) => {
+    // Archives are unpacked first, so what is inside goes through the same steps as dropped files.
+    const files: File[] = []
+    for (const file of incoming) {
+      const kind = classifyFile(file)
+      if (kind === 'unsupported') {
+        reportError(file.name, UNSUPPORTED_MESSAGE)
+      } else if (kind === 'archive') {
+        setProcessingCount((count) => count + 1)
         try {
-          const loadedPdf = await loadPdfPages(file, id)
-          const uploadedPdf = {
-            id,
-            name: file.name,
-            file,
-            importedAt,
-            totalPages: loadedPdf.totalPages,
-            metadata: loadedPdf.metadata,
-            sourceType: 'pdf' as const,
-          }
-          await savePdfFile(uploadedPdf)
-          addPdf(uploadedPdf, loadedPdf.pages)
+          files.push(...(await extractArchive(file)))
         } catch (error) {
-          setErrors((current) => [
-            ...current,
-            {
-              id,
-              fileName: file.name,
-              message:
-                error instanceof Error
-                  ? error.message
-                  : 'This PDF could not be opened. Please try another file.',
-            },
-          ])
+          reportError(file.name, error instanceof Error ? error.message : 'This archive could not be opened.')
         } finally {
           setProcessingCount((count) => count - 1)
         }
-      }),
-    )
-  }, [addPdf])
+      } else {
+        files.push(file)
+      }
+    }
+
+    const imageFiles = files.filter((file) => classifyFile(file) === 'image')
+    if (imageFiles.length > 0) {
+      setPendingImageFiles((current) => [...current, ...imageFiles])
+    }
+    const documentFiles = files.filter((file) => ['pdf', 'tiff'].includes(classifyFile(file)))
+    if (documentFiles.length === 0) return
+    setProcessingCount((count) => count + documentFiles.length)
+
+    // Files are opened a few at a time but added in the order they were given.
+    const opened = await mapInOrder(documentFiles, 3, async (file) => {
+      try {
+        if (classifyFile(file) === 'tiff') {
+          const { source, pages: tiffPages } = await loadTiffDocument(file)
+          await savePdfFile(source)
+          return { source, pages: tiffPages }
+        }
+        const id = crypto.randomUUID()
+        const loadedPdf = await loadPdfPages(file, id)
+        const source = {
+          id,
+          name: file.name,
+          file,
+          importedAt: new Date().toISOString(),
+          totalPages: loadedPdf.totalPages,
+          metadata: loadedPdf.metadata,
+          sourceType: 'pdf' as const,
+        }
+        await savePdfFile(source)
+        return { source, pages: loadedPdf.pages }
+      } catch (error) {
+        reportError(
+          file.name,
+          error instanceof Error ? error.message : 'This file could not be opened. Please try another file.',
+        )
+        return undefined
+      } finally {
+        setProcessingCount((count) => count - 1)
+      }
+    })
+    for (const result of opened) {
+      if (result) addPdf(result.source, result.pages)
+    }
+  }, [addPdf, reportError])
 
   const importImages = useCallback(async () => {
     const files = pendingImageFiles
     setPendingImageFiles([])
     setProcessingCount((count) => count + files.length)
-    await Promise.all(
-      files.map(async (file) => {
-        try {
-          const { source, page } = await loadImagePage(file, imagePageOrientation)
-          await savePdfFile(source)
-          addPdf(source, [page])
-        } catch (error) {
-          setErrors((current) => [
-            ...current,
-            {
-              id: crypto.randomUUID(),
-              fileName: file.name,
-              message:
-                error instanceof Error
-                  ? error.message
-                  : 'This image could not be converted to a PDF page.',
-            },
-          ])
-        } finally {
-          setProcessingCount((count) => count - 1)
-        }
-      }),
-    )
-  }, [addPdf, imagePageOrientation, pendingImageFiles])
+    const converted = await mapInOrder(files, 4, async (file) => {
+      try {
+        const result = await loadImagePage(file, imagePageOrientation)
+        await savePdfFile(result.source)
+        return result
+      } catch (error) {
+        reportError(
+          file.name,
+          error instanceof Error ? error.message : 'This image could not be converted to a PDF page.',
+        )
+        return undefined
+      } finally {
+        setProcessingCount((count) => count - 1)
+      }
+    })
+    for (const result of converted) {
+      if (result) addPdf(result.source, [result.page])
+    }
+  }, [addPdf, imagePageOrientation, pendingImageFiles, reportError])
+
+  // Pasting copied files or a screenshot adds them, unless the paste is meant for a text field or a dialog is open.
+  useEffect(() => {
+    if (!isWorkspaceReady) return
+    const handlePaste = (event: ClipboardEvent) => {
+      const target = event.target
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+      ) {
+        return
+      }
+      if (document.querySelector('[aria-modal="true"]')) return
+      const supported = Array.from(event.clipboardData?.files ?? []).filter(
+        (file) => classifyFile(file) !== 'unsupported',
+      )
+      if (supported.length === 0) return
+      event.preventDefault()
+      // Screenshots arrive as a nameless "image.png"; a clearer name helps in the page list.
+      void handleFiles(
+        supported.map((file, index) =>
+          /^image\.\w+$/i.test(file.name)
+            ? new File([file], `Pasted image${supported.length > 1 ? ` ${index + 1}` : ''}.${file.name.split('.').pop()}`, {
+                type: file.type,
+                lastModified: file.lastModified,
+              })
+            : file,
+        ),
+      )
+    }
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [handleFiles, isWorkspaceReady])
+
+  useEffect(() => {
+    if (!isWorkspaceReady) return
+    window.launchQueue?.setConsumer((params) => {
+      void Promise.all(params.files.map((handle) => handle.getFile())).then((files) => {
+        if (files.length > 0) void handleFiles(files)
+      })
+    })
+  }, [handleFiles, isWorkspaceReady])
 
   const dismissError = (id: string) => {
     setErrors((current) => current.filter((error) => error.id !== id))
@@ -497,20 +519,29 @@ function App() {
     },
     [handleFiles, handleRejected],
   )
+  useEffect(() => {
+    if (theme === 'system') delete document.documentElement.dataset.theme
+    else document.documentElement.dataset.theme = theme
+  }, [theme])
+
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
     getFilesFromEvent: getDroppedFiles,
-    accept: {
-      'application/pdf': ['.pdf'],
-      'image/jpeg': ['.jpg', '.jpeg'],
-      'image/png': ['.png'],
-    },
+    accept: ACCEPTED_FILES,
+    // Pasting is handled by our own listener, which skips text fields and open dialogs.
+    noPaste: true,
     noClick: true,
     noKeyboard: true,
     disabled: !isWorkspaceReady,
   })
 
   const hasSelection = selectedPageIds.length > 0
+  // The action bar stays mounted briefly after the last page is deselected, so it can animate out.
+  const actionBar = usePresence(hasSelection, 200)
+  // The bar keeps showing its last count while it leaves.
+  const [lastSelectionCount, setLastSelectionCount] = useState(0)
+  if (hasSelection && lastSelectionCount !== selectedPageIds.length) setLastSelectionCount(selectedPageIds.length)
+  const indexed = (index: number) => ({ '--i': index }) as CSSProperties
   const selectedPagesAreOneGroup =
     selectedPages.length > 0 &&
     Boolean(selectedPages[0].groupId) &&
@@ -530,6 +561,14 @@ function App() {
     Boolean(contextGroupId) &&
     contextPages.length === pages.filter((page) => page.groupId === contextGroupId).length &&
     contextPages.every((page) => page.groupId === contextGroupId)
+  const renameTarget = contextMenu
+    ? (contextMenu.groupId && contextIsWholeGroup
+        ? document.querySelector<HTMLElement>(`.group-card[data-group-id="${CSS.escape(contextMenu.groupId)}"]`)
+        : null) ??
+      (contextMenu.pageIds.length === 1
+        ? document.querySelector<HTMLElement>(`[data-page-id="${CSS.escape(contextMenu.pageIds[0])}"]:not(.group-card)`)
+        : null)
+    : null
   const canGroupContext = contextPages.length >= 2 && !contextPagesAreOneGroup
   const canUngroupContext = contextPages.some((page) => page.groupId)
   const closeViewer = useCallback(() => setViewerPageId(null), [])
@@ -651,17 +690,28 @@ function App() {
               className="workspace-action-button add-files-button"
               type="button"
               disabled={!isWorkspaceReady}
+              title="Add PDFs or images"
               onClick={open}
             >
-              <FileText size={15} />
-              Add PDFs or Images
+              <Plus size={16} />
+              Add files
+            </button>
+            <button
+              className="workspace-action-icon"
+              type="button"
+              aria-label="Add blank page"
+              title="Add blank page after the selection"
+              disabled={!isWorkspaceReady}
+              onClick={() => void addBlankPage()}
+            >
+              <FilePlus size={16} />
             </button>
             <div className="toolbar-search">
               <Search size={15} aria-hidden="true" />
               <input
                 type="search"
                 aria-label="Search pages by label, source, page number, or PDF metadata"
-                placeholder="Search pages and metadata"
+                placeholder="Search pages"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
               />
@@ -699,6 +749,15 @@ function App() {
               {allPagesSelected ? 'Deselect All' : 'Select All'}
             </button>}
             <button
+              className="workspace-action-icon"
+              type="button"
+              aria-label={`Theme: ${theme}. Switch theme`}
+              title={`Theme: ${theme}`}
+              onClick={() => setTheme(theme === 'system' ? 'light' : theme === 'light' ? 'dark' : 'system')}
+            >
+              {theme === 'system' ? <Monitor size={16} /> : theme === 'light' ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+            <button
               className={`workspace-action-icon${isInspectorOpen ? ' is-active' : ''}`}
               type="button"
               aria-label="Toggle inspector"
@@ -708,12 +767,14 @@ function App() {
             >
               <Info size={16} />
             </button>
-            <button className="workspace-action-icon" type="button" aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" disabled={!canUndo} onClick={undo}>
-              <Undo2 size={16} />
-            </button>
-            <button className="workspace-action-icon" type="button" aria-label="Redo" title="Redo (Ctrl/Cmd+Y)" disabled={!canRedo} onClick={redo}>
-              <Redo2 size={16} />
-            </button>
+            <div className="workspace-segmented" role="group" aria-label="History">
+              <button className="workspace-action-icon" type="button" aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" disabled={!canUndo} onClick={undo}>
+                <Undo2 size={16} />
+              </button>
+              <button className="workspace-action-icon" type="button" aria-label="Redo" title="Redo (Ctrl/Cmd+Y)" disabled={!canRedo} onClick={redo}>
+                <Redo2 size={16} />
+              </button>
+            </div>
             <button
               className="workspace-action-button export-open-button"
               type="button"
@@ -764,7 +825,37 @@ function App() {
 
         {!activeGroup && pages.length === 0 && processingCount === 0 ? (
           <div className="canvas-empty-hint">
-            <span>Drop PDFs or images anywhere to get started</span>
+            <div className="empty-state">
+              <div className="empty-stack" aria-hidden="true">
+                <span className="empty-sheet empty-sheet-3" />
+                <span className="empty-sheet empty-sheet-2" />
+                <span className="empty-sheet empty-sheet-1">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              </div>
+              <h2>Drop PDFs or images to get started</h2>
+              <p>Reorder, rotate, group, and merge pages, then export exactly what you need.</p>
+              <button
+                className="empty-state-button"
+                type="button"
+                disabled={!isWorkspaceReady}
+                onClick={open}
+              >
+                <Plus size={17} />
+                Choose files
+              </button>
+              <div className="empty-state-formats" aria-label="Supported formats">
+                <span>PDF</span>
+                <span>JPG</span>
+                <span>PNG</span>
+              </div>
+              <div className="empty-state-privacy">
+                <LockKeyhole size={13} aria-hidden="true" />
+                Files stay on this device
+              </div>
+            </div>
           </div>
         ) : (
           <>
@@ -804,7 +895,9 @@ function App() {
                   </form>
                 ) : (
                   <div className="group-canvas-title">
-                    <h1>{activeGroup.name}</h1>
+                    <h1 title="Double-click to rename" onDoubleClick={startRenamingActiveGroup}>
+                      {activeGroup.name}
+                    </h1>
                     <button
                       type="button"
                       aria-label={`Rename ${activeGroup.name}`}
@@ -838,17 +931,39 @@ function App() {
               expandedGroupId={activeGroup?.id}
               groupCanvasName={activeGroup?.name}
               onUngroupPage={activeGroup ? ungroupPageFromCanvas : undefined}
+              animateArrivals={isWorkspaceReady}
+              onAddToGroup={addPagesToGroup}
             />
           </>
         )}
       </main>
 
-      {hasSelection && (
-        <div className="page-action-toolbar" aria-label="Page actions">
+      {actionBar.mounted && (
+        <div
+          className={`page-action-toolbar${actionBar.leaving ? ' is-leaving' : ''}`}
+          aria-label="Page actions"
+          aria-hidden={actionBar.leaving}
+        >
+          <span className="selection-chip" aria-live="polite">
+            {/* Re-keyed on every change so the number pops. */}
+            <strong key={lastSelectionCount}>{lastSelectionCount}</strong>
+            selected
+            <button
+              type="button"
+              className="selection-chip-clear"
+              aria-label="Clear selection"
+              title="Clear selection (Esc)"
+              onClick={clearSelection}
+            >
+              <X size={13} />
+            </button>
+          </span>
+          <span className="page-action-divider" aria-hidden="true" />
           {canGroupSelection && (
             <button
               type="button"
               className="page-action-button"
+              style={indexed(0)}
               title="Group selected pages (Shift+G)"
               onClick={() => groupPagesWithAnimation(selectedPageIds)}
             >
@@ -860,6 +975,7 @@ function App() {
             <button
               type="button"
               className="page-action-button"
+              style={indexed(1)}
               onClick={() => ungroupPages(selectedPageIds)}
             >
               <Layers size={16} />
@@ -869,6 +985,7 @@ function App() {
           <button
             type="button"
             className="page-action-button"
+            style={indexed(2)}
             onClick={() => duplicateSelection(selectedPageIds)}
           >
             <Copy size={16} />
@@ -877,6 +994,7 @@ function App() {
           <button
             type="button"
             className="page-action-button"
+            style={indexed(3)}
             onClick={() => rotatePages(selectedPageIds, 90)}
           >
             <RotateCw size={16} />
@@ -885,6 +1003,7 @@ function App() {
           <button
             type="button"
             className="page-action-button destructive"
+            style={indexed(4)}
             onClick={() => requestDeletePages(selectedPageIds)}
           >
             <Trash2 size={16} />
@@ -952,6 +1071,32 @@ function App() {
               Ungroup
             </button>
           )}
+          {renameTarget && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setContextMenu(null)
+                // Wait for the menu to unmount so the input keeps focus.
+                window.requestAnimationFrame(() => renameTarget.dispatchEvent(new Event(RENAME_EVENT)))
+              }}
+            >
+              <Pencil size={15} />
+              Rename
+            </button>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              const lastId = contextMenu.pageIds[contextMenu.pageIds.length - 1]
+              setContextMenu(null)
+              void addBlankPage(lastId)
+            }}
+          >
+            <FilePlus size={15} />
+            Insert blank page after
+          </button>
           <button
             type="button"
             role="menuitem"
@@ -1010,6 +1155,7 @@ function App() {
           onRotate={(pageId, delta) => rotatePages([pageId], delta)}
           onRename={renamePage}
           onDelete={(pageId) => requestDeletePages([pageId])}
+          onUpdateText={setPageTextBoxes}
           onClose={closeViewer}
         />
       )}
@@ -1080,7 +1226,7 @@ function App() {
                 type="button"
                 className="delete-confirmation-submit"
                 onClick={() => {
-                  deletePages(pendingDeletePageIds)
+                  removeWithAnimation(pendingDeletePageIds, () => deletePages(pendingDeletePageIds))
                   setPendingDeletePageIds([])
                 }}
               >
