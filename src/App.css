@@ -1132,7 +1132,7 @@
   min-width: 0;
   flex: 1;
   overflow: auto;
-  padding: 0 80px 84px;
+  padding: 0 80px 124px;
   overscroll-behavior: contain;
 }
 

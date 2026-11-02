@@ -1,11 +1,15 @@
 /*
- * How the app's action bar and context menu sit on liquikit's glass (src/components/liquikit).
- * liquikit's GlassPane draws the surface, so the app's own surface styles are cleared here.
+ * The app on liquikit's glass (src/components/liquikit): the one shared bottom bar (LiquidBar)
+ * and the page context menu. liquikit's GlassPane draws the surfaces, so the app's own surface
+ * styles are cleared here.
  */
 
-/* ---- Action bar: a positioner only; the liquikit toolbar inside is the glass. ---- */
+/* ---- Shared bottom bar ---- */
 
+/* A positioner only; the glass pane inside is the bar. Above the page viewer, so the same bar
+   carries on when a page is maximized. */
 .page-action-toolbar {
+  z-index: 45;
   overflow: visible;
   border: 0;
   border-radius: 0;
@@ -15,41 +19,140 @@
   -webkit-backdrop-filter: none;
 }
 
-.page-action-toolbar .glass-ui-toolbar__row {
+/* The glass grows out of a droplet on its own, so the bar only rises. Transform only, and not
+   kept after it ends: an animated opacity makes the bar a backdrop root, and the frost inside
+   it would stop blurring the page. */
+.page-action-toolbar {
+  animation: liquid-bar-rise 420ms cubic-bezier(0.34, 1.45, 0.64, 1) backwards;
+}
+
+@keyframes liquid-bar-rise {
+  from {
+    transform: translateY(18px);
+  }
+}
+
+/* The viewer covers the inspector, so its bar centres on the window. */
+.app-shell:has(.document-inspector) .page-action-toolbar.is-viewer {
+  left: 50%;
+}
+
+/* The pane's box is as big as the largest layer; only the glass shape inside it takes clicks. */
+.liquid-bar .glass-pane {
+  pointer-events: none;
+}
+
+.liquid-bar-stack {
+  position: relative;
+}
+
+/* Every screen's controls sit centred on the same spot. The one showing comes into focus as the
+   glass reaches its shape; the others blur away. */
+.liquid-bar-layer {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max-content;
+  translate: -50% -50%;
+  opacity: 0;
+  filter: blur(8px);
+  scale: 0.9;
+  pointer-events: none;
+  transition:
+    opacity 140ms ease,
+    filter 180ms ease,
+    scale 220ms ease;
+}
+
+.liquid-bar-layer[data-active] {
+  opacity: 1;
+  filter: none;
+  scale: 1;
+  pointer-events: auto;
+  transition:
+    opacity 220ms ease 120ms,
+    filter 260ms ease 100ms,
+    scale 420ms cubic-bezier(0.3, 1.4, 0.5, 1) 80ms;
+}
+
+.liquid-bar-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
   gap: 4px;
-  padding: 6px 8px 6px 6px;
+  max-width: calc(100vw - 32px);
+  padding: 6px 8px;
 }
 
-.page-action-toolbar .selection-chip {
-  padding: 0 4px 0 12px;
+.liquid-bar .selection-chip {
+  padding: 0 4px 0 10px;
   color: inherit;
 }
 
-.page-action-toolbar .selection-chip strong {
+.liquid-bar .selection-chip strong {
   color: inherit;
 }
 
-/* liquikit's toolbar buttons replace the app's bordered action buttons. */
-.page-action-toolbar .glass-ui-toolbar__button.page-action-button {
+/* One button look for every screen: liquikit's toolbar buttons. */
+.liquid-bar .glass-ui-toolbar__button.page-action-button {
   border: 0;
   background: none;
   padding: 0 14px;
+  color: var(--text);
   font-size: 13px;
   box-shadow: none;
 }
 
-.page-action-toolbar .glass-ui-toolbar__button.page-action-button:hover {
+.liquid-bar .glass-ui-toolbar__button.page-action-button[data-icon] {
+  width: 38px;
+  padding: 0;
+}
+
+.liquid-bar .glass-ui-toolbar__button.page-action-button:hover {
   box-shadow: none;
 }
 
-.page-action-toolbar .glass-ui-toolbar__button.page-action-button svg {
+.liquid-bar .glass-ui-toolbar__button.page-action-button svg {
   width: 17px;
   height: 17px;
 }
 
-.page-action-toolbar .glass-ui-toolbar__button.destructive,
+.liquid-bar .glass-ui-toolbar__button.page-action-button.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.liquid-bar .glass-ui-toolbar__button.destructive,
 .glass-ui-menu__item.destructive {
   color: var(--danger-text);
+}
+
+/* The viewer's zoom group, as a capsule inside the bar. */
+.liquid-bar .page-viewer-zoom {
+  border: 0;
+  border-radius: 999px;
+  background: rgb(var(--fg) / 0.07);
+}
+
+.liquid-bar .page-viewer-zoom .glass-ui-toolbar__button {
+  color: var(--text);
+}
+
+.liquid-bar .page-viewer-zoom-level.glass-ui-toolbar__button {
+  min-width: 58px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.liquid-bar .page-viewer-zoom-button:disabled {
+  opacity: 0.3;
+}
+
+.liquid-bar .page-viewer-toolbar-divider {
+  width: 1px;
+  height: 22px;
+  margin: 0 4px;
 }
 
 /* ---- Context menu ---- */
@@ -60,4 +163,13 @@
 
 .glass-ui-menu.page-glass-menu .glass-ui-menu__item {
   font-size: 13.5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liquid-bar-layer,
+  .liquid-bar-layer[data-active] {
+    filter: none;
+    scale: 1;
+    transition: opacity 120ms ease;
+  }
 }

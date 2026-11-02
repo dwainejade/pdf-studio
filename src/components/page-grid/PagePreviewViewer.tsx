@@ -5,8 +5,9 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import {
   Check,
   ChevronLeft,
@@ -57,6 +58,14 @@ interface PagePreviewViewerProps {
   onDelete: (pageId: string) => void;
   onUpdateText: (pageId: string, textBoxes: PageTextBox[]) => void;
   onClose: () => void;
+  /** Called when the close animation starts, before `onClose`. */
+  onCloseStart?: () => void;
+  /**
+   * The shared bottom bar's slot for this screen's controls. When given, the toolbar renders there
+   * (and leaves it as soon as closing starts) so the one bar can morph between screens; `null`
+   * means the slot is not ready yet. Left out, the toolbar renders inside the viewer.
+   */
+  toolbarSlot?: HTMLElement | null;
 }
 
 const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
@@ -66,7 +75,8 @@ const OPEN_ANIMATION_MS = 360;
 const CLOSE_ANIMATION_MS = 280;
 const SHARP_RENDER_DELAY_MS = 250;
 const STAGE_SIDE_PADDING = 80;
-const BARS_HEIGHT = 58 + 78;
+// The header, and the shared bottom bar with the room around it.
+const BARS_HEIGHT = 58 + 124;
 const MAX_PAGE_WIDTH = 850;
 // Pages are sized by width, so the render target is effectively unbounded in height.
 const UNBOUNDED_HEIGHT = 100000;
@@ -96,6 +106,8 @@ export function PagePreviewViewer({
   onDelete,
   onUpdateText,
   onClose,
+  onCloseStart,
+  toolbarSlot,
 }: PagePreviewViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pageSurfaceRef = useRef<HTMLDivElement>(null);
@@ -110,6 +122,7 @@ export function PagePreviewViewer({
     moved: boolean;
   } | null>(null);
   const isClosingRef = useRef(false);
+  const [isClosing, setIsClosing] = useState(false);
   const zoomTimerRef =useRef<number | undefined>(undefined);
   const [box, setBox] = useState(stageBox);
   // Zoom belongs to one page: moving to another page starts again at 100%.
@@ -266,6 +279,8 @@ export function PagePreviewViewer({
       return;
     }
     isClosingRef.current = true;
+    setIsClosing(true);
+    onCloseStart?.();
     dialog.style.pointerEvents = "none";
     target.style.visibility = "hidden";
     const options = {
@@ -289,7 +304,7 @@ export function PagePreviewViewer({
       target.style.visibility = "";
       onClose();
     });
-  }, [onClose, pageId]);
+  }, [onClose, onCloseStart, pageId]);
 
   useEffect(() => {
     dialogRef.current?.focus();
@@ -923,11 +938,11 @@ export function PagePreviewViewer({
           <ChevronRight size={26} />
         </button>
       </div>
-      <div className="page-viewer-toolbar" aria-label="Page actions">
+      <ViewerToolbar slot={toolbarSlot} hidden={isClosing}>
         <div className="page-viewer-zoom" role="group" aria-label="Zoom">
           <button
             type="button"
-            className="page-viewer-zoom-button"
+            className="page-viewer-zoom-button glass-ui-toolbar__button" data-icon=""
             aria-label="Zoom out"
             title="Zoom out (-)"
             disabled={zoom <= ZOOM_STEPS[0]}
@@ -937,7 +952,7 @@ export function PagePreviewViewer({
           </button>
           <button
             type="button"
-            className="page-viewer-zoom-level"
+            className="page-viewer-zoom-level glass-ui-toolbar__button"
             aria-label={`Zoom ${percent}%. Reset to fit`}
             title="Reset to fit (0)"
             onClick={() => changeZoom(1)}
@@ -946,7 +961,7 @@ export function PagePreviewViewer({
           </button>
           <button
             type="button"
-            className="page-viewer-zoom-button"
+            className="page-viewer-zoom-button glass-ui-toolbar__button" data-icon=""
             aria-label="Zoom in"
             title="Zoom in (+)"
             disabled={zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
@@ -955,10 +970,10 @@ export function PagePreviewViewer({
             <ZoomIn size={16} />
           </button>
         </div>
-        <span className="page-viewer-toolbar-divider" aria-hidden="true" />
+        <span className="page-viewer-toolbar-divider glass-ui-toolbar__separator" aria-hidden="true" />
         <button
           type="button"
-          className={`page-action-button${isAddingText ? " is-active" : ""}`}
+          className={`page-action-button glass-ui-toolbar__button${isAddingText ? " is-active" : ""}`}
           aria-pressed={isAddingText}
           title="Add text, then click the page (T)"
           onClick={() =>
@@ -980,7 +995,7 @@ export function PagePreviewViewer({
           >
             <button
               type="button"
-              className="page-viewer-zoom-button"
+              className="page-viewer-zoom-button glass-ui-toolbar__button" data-icon=""
               aria-label="Smaller text"
               disabled={selectedTextBox.fontSize <= MIN_TEXT_SIZE}
               onClick={() =>
@@ -999,7 +1014,7 @@ export function PagePreviewViewer({
             </span>
             <button
               type="button"
-              className="page-viewer-zoom-button"
+              className="page-viewer-zoom-button glass-ui-toolbar__button" data-icon=""
               aria-label="Larger text"
               disabled={selectedTextBox.fontSize >= MAX_TEXT_SIZE}
               onClick={() =>
@@ -1013,10 +1028,10 @@ export function PagePreviewViewer({
             >
               <Plus size={14} />
             </button>
-            <span className="page-viewer-toolbar-divider" aria-hidden="true" />
+            <span className="page-viewer-toolbar-divider glass-ui-toolbar__separator" aria-hidden="true" />
             <button
               type="button"
-              className="page-viewer-zoom-button"
+              className="page-viewer-zoom-button glass-ui-toolbar__button" data-icon=""
               aria-label="Rotate text left 15 degrees"
               title="Rotate left 15°"
               onClick={() => turnSelectedText(-15)}
@@ -1025,14 +1040,14 @@ export function PagePreviewViewer({
             </button>
             <button
               type="button"
-              className="page-viewer-zoom-button"
+              className="page-viewer-zoom-button glass-ui-toolbar__button" data-icon=""
               aria-label="Rotate text right 15 degrees"
               title="Rotate right 15°"
               onClick={() => turnSelectedText(15)}
             >
               <RotateCw size={14} />
             </button>
-            <span className="page-viewer-toolbar-divider" aria-hidden="true" />
+            <span className="page-viewer-toolbar-divider glass-ui-toolbar__separator" aria-hidden="true" />
             {TEXT_COLORS.map((color) => (
               <button
                 key={color}
@@ -1044,10 +1059,10 @@ export function PagePreviewViewer({
                 onClick={() => styleSelectedText({ color })}
               />
             ))}
-            <span className="page-viewer-toolbar-divider" aria-hidden="true" />
+            <span className="page-viewer-toolbar-divider glass-ui-toolbar__separator" aria-hidden="true" />
             <button
               type="button"
-              className="page-viewer-zoom-button"
+              className="page-viewer-zoom-button glass-ui-toolbar__button" data-icon=""
               aria-label="Delete text"
               title="Delete text"
               onClick={removeSelectedText}
@@ -1061,10 +1076,10 @@ export function PagePreviewViewer({
             {activeTextLayerError}
           </span>
         )}
-        <span className="page-viewer-toolbar-divider" aria-hidden="true" />
+        <span className="page-viewer-toolbar-divider glass-ui-toolbar__separator" aria-hidden="true" />
         <button
           type="button"
-          className="page-action-button"
+          className="page-action-button glass-ui-toolbar__button" data-icon=""
           aria-label="Rotate left 90 degrees"
           title="Rotate left (Shift+R)"
           onClick={() => onRotate(page.id, -90)}
@@ -1073,7 +1088,7 @@ export function PagePreviewViewer({
         </button>
         <button
           type="button"
-          className="page-action-button"
+          className="page-action-button glass-ui-toolbar__button" data-icon=""
           aria-label="Rotate right 90 degrees"
           title="Rotate right (R)"
           onClick={() => onRotate(page.id, 90)}
@@ -1082,13 +1097,38 @@ export function PagePreviewViewer({
         </button>
         <button
           type="button"
-          className="page-action-button destructive"
+          className="page-action-button glass-ui-toolbar__button destructive"
           onClick={handleDelete}
         >
           <Trash2 size={16} />
           <span>Delete</span>
         </button>
-      </div>
+      </ViewerToolbar>
     </div>
+  );
+}
+
+function ViewerToolbar({
+  slot,
+  hidden,
+  children,
+}: {
+  slot: HTMLElement | null | undefined;
+  hidden: boolean;
+  children: ReactNode;
+}) {
+  if (slot === undefined) {
+    return (
+      <div className="page-viewer-toolbar" aria-label="Page actions">
+        {children}
+      </div>
+    );
+  }
+  if (!slot || hidden) return null;
+  return createPortal(
+    <div className="liquid-bar-row" role="toolbar" aria-label="Page actions">
+      {children}
+    </div>,
+    slot,
   );
 }

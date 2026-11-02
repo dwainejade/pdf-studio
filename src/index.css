@@ -110,8 +110,9 @@
   }
 }
 
-/* The page viewer is a dark surface in either theme. */
-.page-viewer {
+/* The page viewer, and its controls in the shared bottom bar, are dark in either theme. */
+.page-viewer,
+.liquid-bar-layer.is-dark {
   --fg: 255 255 255;
   --text: #e7e5ec;
   --text-muted: #b4b0c0;

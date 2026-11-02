@@ -47,7 +47,9 @@ import { useViewPreferences } from './store/viewPreferences'
 import type { UploadError } from './types/pdf'
 import './App.css'
 import { PointMenu } from './components/layout/PointMenu'
+import { Toolbar as BaseToolbar } from '@base-ui/react/toolbar'
 import { Toolbar } from './components/liquikit/toolbar'
+import { LiquidBar } from './components/layout/LiquidBar'
 import { MenuItem } from './components/liquikit/menu'
 import { useResolvedTheme } from './lib/useResolvedTheme'
 import './liquikit-app.css'
@@ -612,8 +614,16 @@ function App() {
   })
 
   const hasSelection = selectedPageIds.length > 0
-  // The action bar stays mounted briefly after the last page is deselected, so it can animate out.
-  const actionBar = usePresence(hasSelection, 200)
+  // One bottom bar for every screen: the maximized page's controls while the viewer is open
+  // (it hands them over as soon as it starts closing), the selection's actions otherwise.
+  const [viewerToolbarSlot, setViewerToolbarSlot] = useState<HTMLElement | null>(null)
+  const [isViewerClosing, setIsViewerClosing] = useState(false)
+  const barMode = viewerPageId && !isViewerClosing ? 'viewer' : hasSelection ? 'grid' : null
+  // The bar stays mounted briefly after it empties, so it can shrink away.
+  const actionBar = usePresence(barMode !== null, 300)
+  const [lastBarMode, setLastBarMode] = useState<'grid' | 'viewer'>(barMode ?? 'grid')
+  if (barMode && barMode !== lastBarMode) setLastBarMode(barMode)
+  const showGridActions = hasSelection || (actionBar.leaving && lastBarMode === 'grid')
   // The bar keeps showing its last count while it leaves.
   const [lastSelectionCount, setLastSelectionCount] = useState(0)
   if (hasSelection && lastSelectionCount !== selectedPageIds.length) setLastSelectionCount(selectedPageIds.length)
@@ -651,7 +661,10 @@ function App() {
     : null
   const canGroupContext = contextPages.length >= 2 && !contextPagesAreOneGroup
   const canUngroupContext = contextPages.some((page) => page.groupId)
-  const closeViewer = useCallback(() => setViewerPageId(null), [])
+  const closeViewer = useCallback(() => {
+    setViewerPageId(null)
+    setIsViewerClosing(false)
+  }, [])
   const openGroup = (groupId: string) => {
     const motion = groupMotionRef.current
     const card = findGroupCard(groupId)
@@ -1004,70 +1017,84 @@ function App() {
       </main>
 
       {actionBar.mounted && (
-        <div className={`page-action-toolbar${actionBar.leaving ? ' is-leaving' : ''}`} aria-hidden={actionBar.leaving}>
-          <Toolbar.Root aria-label="Page actions" theme={glassTheme}>
-            <span className="selection-chip" aria-live="polite">
-              {/* Re-keyed on every change so the number pops. */}
-              <strong key={lastSelectionCount}>{lastSelectionCount}</strong>
-              selected
-              <button
-                type="button"
-                className="selection-chip-clear"
-                aria-label="Clear selection"
-                title="Clear selection (Esc)"
-                onClick={clearSelection}
-              >
-                <X size={13} />
-              </button>
-            </span>
-            <Toolbar.Separator />
-            {canGroupSelection && (
-              <Toolbar.Button
-                className="page-action-button"
-                style={indexed(0)}
-                title="Group selected pages (Shift+G)"
-                onClick={() => groupPagesWithAnimation(selectedPageIds)}
-              >
-                <FileStack size={16} />
-                <span>Group</span>
-              </Toolbar.Button>
-            )}
-            {selectedPages.some((page) => page.groupId) && (
-              <Toolbar.Button
-                className="page-action-button"
-                style={indexed(1)}
-                onClick={() => ungroupPages(selectedPageIds)}
-              >
-                <Layers size={16} />
-                <span>Ungroup</span>
-              </Toolbar.Button>
-            )}
-            <Toolbar.Button
-              className="page-action-button"
-              style={indexed(2)}
-              onClick={() => duplicateSelection(selectedPageIds)}
-            >
-              <Copy size={16} />
-              <span>Duplicate</span>
-            </Toolbar.Button>
-            <Toolbar.Button
-              className="page-action-button"
-              style={indexed(3)}
-              onClick={() => rotatePages(selectedPageIds, 90)}
-            >
-              <RotateCw size={16} />
-              <span>Rotate 90°</span>
-            </Toolbar.Button>
-            <Toolbar.Button
-              className="page-action-button destructive"
-              style={indexed(4)}
-              onClick={() => requestDeletePages(selectedPageIds)}
-            >
-              <Trash2 size={16} />
-              <span>Delete</span>
-            </Toolbar.Button>
-          </Toolbar.Root>
-        </div>
+        <LiquidBar
+          className={`page-action-toolbar${lastBarMode === 'viewer' ? ' is-viewer' : ''}${actionBar.leaving ? ' is-leaving' : ''}`}
+          label="Page actions"
+          active={lastBarMode}
+          leaving={actionBar.leaving}
+          layers={[
+            {
+              key: 'grid',
+              theme: glassTheme,
+              content: showGridActions && (
+                <BaseToolbar.Root className="liquid-bar-row" aria-label="Selected pages">
+                  <span className="selection-chip" aria-live="polite">
+                    {/* Re-keyed on every change so the number pops. */}
+                    <strong key={lastSelectionCount}>{lastSelectionCount}</strong>
+                    selected
+                    <button
+                      type="button"
+                      className="selection-chip-clear"
+                      aria-label="Clear selection"
+                      title="Clear selection (Esc)"
+                      onClick={clearSelection}
+                    >
+                      <X size={13} />
+                    </button>
+                  </span>
+                  <Toolbar.Separator />
+                  {canGroupSelection && (
+                    <Toolbar.Button
+                      className="page-action-button"
+                      style={indexed(0)}
+                      title="Group selected pages (Shift+G)"
+                      onClick={() => groupPagesWithAnimation(selectedPageIds)}
+                    >
+                      <FileStack size={16} />
+                      <span>Group</span>
+                    </Toolbar.Button>
+                  )}
+                  {selectedPages.some((page) => page.groupId) && (
+                    <Toolbar.Button
+                      className="page-action-button"
+                      style={indexed(1)}
+                      onClick={() => ungroupPages(selectedPageIds)}
+                    >
+                      <Layers size={16} />
+                      <span>Ungroup</span>
+                    </Toolbar.Button>
+                  )}
+                  <Toolbar.Button
+                    className="page-action-button"
+                    style={indexed(2)}
+                    onClick={() => duplicateSelection(selectedPageIds)}
+                  >
+                    <Copy size={16} />
+                    <span>Duplicate</span>
+                  </Toolbar.Button>
+                  <Toolbar.Button
+                    className="page-action-button"
+                    style={indexed(3)}
+                    onClick={() => rotatePages(selectedPageIds, 90)}
+                  >
+                    <RotateCw size={16} />
+                    <span>Rotate 90°</span>
+                  </Toolbar.Button>
+                  <Toolbar.Button
+                    className="page-action-button destructive"
+                    style={indexed(4)}
+                    onClick={() => requestDeletePages(selectedPageIds)}
+                  >
+                    <Trash2 size={16} />
+                    <span>Delete</span>
+                  </Toolbar.Button>
+                </BaseToolbar.Root>
+              ),
+            },
+            // The viewer portals its own controls into this layer (see PagePreviewViewer).
+            { key: 'viewer', theme: 'dark', slotRef: setViewerToolbarSlot, className: 'is-dark' },
+          ]}
+        />
       )}
       <PointMenu
         open={Boolean(contextMenu)}
@@ -1197,6 +1224,8 @@ function App() {
           onDelete={(pageId) => requestDeletePages([pageId])}
           onUpdateText={setPageTextBoxes}
           onClose={closeViewer}
+          onCloseStart={() => setIsViewerClosing(true)}
+          toolbarSlot={viewerToolbarSlot}
         />
       )}
 
