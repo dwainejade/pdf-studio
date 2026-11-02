@@ -4,6 +4,7 @@ const MAX_THUMBNAIL_DIMENSION = 1600
 const MAX_THUMBNAIL_PIXELS = 2_000_000
 const MAX_FULL_DIMENSION = 6000
 const MAX_FULL_PIXELS = 20_000_000
+const MIN_FULL_RENDER_DENSITY = 2
 
 function deviceScale(): number {
   return Math.min(window.devicePixelRatio || 1, 3)
@@ -27,7 +28,14 @@ export function fullPageScale(
   unitViewport: PageViewport,
   target: { width: number; height: number },
 ): number {
-  return fitPageScale(unitViewport, target, { dimension: MAX_FULL_DIMENSION, pixels: MAX_FULL_PIXELS })
+  // Render at no less than 2x device pixels: on 1x screens a 1:1 render looks jagged, and the
+  // browser's downscale of a supersampled canvas gives smooth, anti-aliased text.
+  const supersample = Math.max(1, MIN_FULL_RENDER_DENSITY / deviceScale())
+  return fitPageScale(
+    unitViewport,
+    { width: target.width * supersample, height: target.height * supersample },
+    { dimension: MAX_FULL_DIMENSION, pixels: MAX_FULL_PIXELS },
+  )
 }
 
 /** Renders a page just large enough for a card of `target` CSS pixels; no image encoding step. */
