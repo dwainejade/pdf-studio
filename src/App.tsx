@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { groupWithAnimation, removeWithAnimation, ungroupWithAnimation } from './lib/pageAnimations'
 import { useDropzone, type FileRejection } from 'react-dropzone'
 import {
@@ -57,6 +57,57 @@ declare global {
   }
 }
 
+const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+const GROUP_EASE_OUT = 'cubic-bezier(0.2, 0.8, 0.2, 1)'
+const GROUP_EASE_IN = 'cubic-bezier(0.4, 0, 0.7, 0.2)'
+const STACK_TILTS = [0, -4, 3.5]
+
+const findGroupCard = (groupId: string) => document.querySelector(`[data-group-id="${CSS.escape(groupId)}"]`)
+
+/**
+ * The group canvas opens out of (or folds back into) the group's card: the canvas is clipped to the
+ * card's box and the clip grows to the full screen, while each page card fans out from a stack there.
+ */
+function playGroupMotion(canvas: HTMLElement, group: DOMRect, direction: 'open' | 'close'): Animation[] {
+  const isOpening = direction === 'open'
+  const bounds = canvas.getBoundingClientRect()
+  const clipped = `inset(${group.top - bounds.top}px ${bounds.right - group.right}px ${bounds.bottom - group.bottom}px ${group.left - bounds.left}px round 16px)`
+  const full = 'inset(0px 0px 0px 0px round 0px)'
+  const options: KeyframeAnimationOptions = {
+    easing: isOpening ? GROUP_EASE_OUT : GROUP_EASE_IN,
+    fill: isOpening ? 'backwards' : 'forwards',
+  }
+  const cards = Array.from(canvas.querySelectorAll<HTMLElement>('.page-grid [data-page-id]'))
+  const animations = [
+    canvas.animate(isOpening ? [{ clipPath: clipped }, { clipPath: full }] : [{ clipPath: full }, { clipPath: clipped }], {
+      ...options,
+      duration: isOpening ? 440 : 320,
+    }),
+  ]
+  const centre = { x: group.left + group.width / 2, y: group.top + group.height / 2 }
+  cards.forEach((card, index) => {
+    const rect = card.getBoundingClientRect()
+    if (rect.width === 0) return
+    const depth = Math.min(index, 3)
+    const scale = Math.min(group.width / rect.width, group.height / rect.height) * 0.94
+    const stacked: Keyframe = {
+      transform: `translate(${centre.x - (rect.left + rect.width / 2) + depth * 2}px, ${centre.y - (rect.top + rect.height / 2) - depth * 2}px) scale(${scale}) rotate(${STACK_TILTS[Math.min(index, STACK_TILTS.length - 1)]}deg)`,
+      opacity: index < 3 ? 1 : 0,
+    }
+    const rest: Keyframe = { transform: 'none', opacity: 1 }
+    const delay = isOpening ? Math.min(index, 10) * 30 : Math.min(cards.length - 1 - index, 10) * 18
+    animations.push(
+      card.animate(isOpening ? [stacked, rest] : [rest, stacked], {
+        ...options,
+        delay,
+        duration: isOpening ? 440 : 300,
+      }),
+    )
+  })
+  return animations
+}
+
 function App() {
   const [processingCount, setProcessingCount] = useState(0)
   const [pendingImageFiles, setPendingImageFiles] = useState<File[]>([])
@@ -69,6 +120,25 @@ function App() {
   const [isInspectorOpen, setIsInspectorOpen] = useState(false)
   const [viewerPageId, setViewerPageId] = useState<string | null>(null)
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
+  const canvasRef = useRef<HTMLElement>(null)
+  // Group open/close motion: `running` holds the closing frame until the home grid is back in place.
+  const groupMotionRef = useRef<{ running: Animation[]; from: DOMRect | null; shouldOpen: boolean }>({
+    running: [],
+    from: null,
+    shouldOpen: false,
+  })
+
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current
+    const motion = groupMotionRef.current
+    const wasOpening = motion.shouldOpen
+    motion.shouldOpen = false
+    motion.running.forEach((animation) => animation.cancel())
+    motion.running = []
+    if (!canvas || !wasOpening || !activeGroupId || !motion.from) return
+    motion.running = playGroupMotion(canvas, motion.from, 'open')
+    return () => motion.running.forEach((animation) => animation.cancel())
+  }, [activeGroupId])
   const [contextMenu, setContextMenu] = useState<{
     pageIds: string[]
     groupId?: string
@@ -573,13 +643,28 @@ function App() {
   const canUngroupContext = contextPages.some((page) => page.groupId)
   const closeViewer = useCallback(() => setViewerPageId(null), [])
   const openGroup = (groupId: string) => {
+    const motion = groupMotionRef.current
+    const card = findGroupCard(groupId)
+    motion.from = card ? card.getBoundingClientRect() : null
+    motion.shouldOpen = motion.from !== null && !prefersReducedMotion()
     clearSelection()
     setActiveGroupId(groupId)
   }
   const leaveGroup = () => {
-    clearSelection()
-    setIsRenamingActiveGroup(false)
-    setActiveGroupId(null)
+    const canvas = canvasRef.current
+    const motion = groupMotionRef.current
+    const finish = () => {
+      clearSelection()
+      setIsRenamingActiveGroup(false)
+      setActiveGroupId(null)
+    }
+    if (!canvas || !motion.from || motion.running.length > 0 || prefersReducedMotion()) return finish()
+    canvas.style.pointerEvents = 'none'
+    motion.running = playGroupMotion(canvas, motion.from, 'close')
+    motion.running[0].addEventListener('finish', () => {
+      canvas.style.pointerEvents = ''
+      finish()
+    })
   }
   const startRenamingActiveGroup = () => {
     if (!activeGroup) return
@@ -636,55 +721,16 @@ function App() {
       })}
     >
       <input {...getInputProps({ className: 'workspace-file-input' })} />
-      <main className={`canvas${activeGroup ? ' group-canvas' : ''}`}>
+      <main ref={canvasRef} className={`canvas${activeGroup ? ' group-canvas' : ''}`}>
         <div className="canvas-toolbar">
-          <div className="toolbar-brand">
-            {activeGroup ? (
+          {activeGroup && (
+            <div className="toolbar-brand">
               <button className="group-back-button" type="button" onClick={leaveGroup}>
                 <ArrowLeft size={15} />
                 <span>Back to home</span>
               </button>
-            ) : (
-              <>
-                <span className="toolbar-brand-mark">
-                  <FileStack size={18} strokeWidth={1.8} />
-                </span>
-                <span className="toolbar-brand-name">PDF <strong>Studio</strong></span>
-                <span className="toolbar-divider" aria-hidden="true" />
-                <span className="toolbar-file-status">
-                  <span className="status-dot" />
-                  {pages.length > 0
-                    ? `${pdfs.length} ${pdfs.length === 1 ? 'source file' : 'source files'} · ${pages.length} ${pages.length === 1 ? 'page' : 'pages'}`
-                    : 'Local workspace'}
-                </span>
-              </>
-            )}
-          </div>
-          <div className="canvas-summary">
-            <FileText size={15} />
-            <span>
-              {activeGroup
-                ? `${activeGroupPages.length} ${activeGroupPages.length === 1 ? 'page' : 'pages'} in ${activeGroup.name}`
-                : pages.length > 0
-                ? `${pages.length} ${pages.length === 1 ? 'page' : 'pages'}`
-                : 'Workspace'}
-            </span>
-            {!isWorkspaceReady && !storageError && (
-              <span className="canvas-processing">Restoring local workspace…</span>
-            )}
-            {isSavingWorkspace && (
-              <span className="canvas-processing">Saving locally…</span>
-            )}
-            {isWorkspaceReady && !isSavingWorkspace && !storageError && pages.length > 0 && (
-              <span className="workspace-saved-status">Saved on this device</span>
-            )}
-            {processingCount > 0 && (
-              <span className="canvas-processing">Processing files…</span>
-            )}
-            {selectedPageIds.length > 0 && (
-              <span className="selection-count">{selectedPageIds.length} Selected</span>
-            )}
-          </div>
+            </div>
+          )}
           <div className="workspace-actions">
             <button
               className="workspace-action-button add-files-button"
@@ -936,6 +982,33 @@ function App() {
             />
           </>
         )}
+        <footer className="canvas-footer">
+          <div className="canvas-summary">
+            <FileText size={15} />
+            <span>
+              {activeGroup
+                ? `${activeGroupPages.length} ${activeGroupPages.length === 1 ? 'page' : 'pages'} in ${activeGroup.name}`
+                : pages.length > 0
+                ? `${pdfs.length} ${pdfs.length === 1 ? 'source file' : 'source files'} · ${pages.length} ${pages.length === 1 ? 'page' : 'pages'}`
+                : 'Local workspace'}
+            </span>
+            {!isWorkspaceReady && !storageError && (
+              <span className="canvas-processing">Restoring local workspace…</span>
+            )}
+            {isSavingWorkspace && (
+              <span className="canvas-processing">Saving locally…</span>
+            )}
+            {isWorkspaceReady && !isSavingWorkspace && !storageError && pages.length > 0 && (
+              <span className="workspace-saved-status">Saved on this device</span>
+            )}
+            {processingCount > 0 && (
+              <span className="canvas-processing">Processing files…</span>
+            )}
+            {selectedPageIds.length > 0 && (
+              <span className="selection-count">{selectedPageIds.length} Selected</span>
+            )}
+          </div>
+        </footer>
       </main>
 
       {actionBar.mounted && (

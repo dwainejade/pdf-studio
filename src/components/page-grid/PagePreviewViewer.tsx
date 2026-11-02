@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -60,7 +61,9 @@ interface PagePreviewViewerProps {
 
 const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 const ZOOM_ANIMATION_MS = 220;
-const ROTATE_ANIMATION_MS = 320;
+const ROTATE_ANIMATION_MS = 320
+const OPEN_ANIMATION_MS = 360;
+const CLOSE_ANIMATION_MS = 280;
 const SHARP_RENDER_DELAY_MS = 250;
 const STAGE_SIDE_PADDING = 80;
 const BARS_HEIGHT = 58 + 78;
@@ -76,6 +79,11 @@ function stageBox() {
     ),
     height: Math.max(200, window.innerHeight - BARS_HEIGHT),
   };
+}
+
+function findOriginThumbnail(pageId: string) {
+  const card = document.querySelector(`[data-page-id="${CSS.escape(pageId)}"]`)
+  return card?.querySelector<HTMLElement>('.page-thumbnail') ?? null
 }
 
 export function PagePreviewViewer({
@@ -101,7 +109,8 @@ export function PagePreviewViewer({
     top: number;
     moved: boolean;
   } | null>(null);
-  const zoomTimerRef = useRef<number | undefined>(undefined);
+  const isClosingRef = useRef(false);
+  const zoomTimerRef =useRef<number | undefined>(undefined);
   const [box, setBox] = useState(stageBox);
   // Zoom belongs to one page: moving to another page starts again at 100%.
   const [zoomState, setZoomState] = useState({ pageId, zoom: 1, sharp: 1 });
@@ -126,7 +135,12 @@ export function PagePreviewViewer({
   const zoom = zoomState.pageId === pageId ? zoomState.zoom : 1;
   const sharpZoom = zoomState.pageId === pageId ? zoomState.sharp : 1;
   const [isZoomAnimating, setIsZoomAnimating] = useState(false);
-  const [aspect, setAspect] = useState(0.77);
+  // The grid thumbnail this view opened from: the page grows out of it, and its shape seeds the first layout.
+  const [origin] = useState(() => findOriginThumbnail(pageId))
+  const [aspect, setAspect] = useState(() => {
+    const rect = origin?.getBoundingClientRect()
+    return rect && rect.width > 0 && rect.height > 0 ? rect.width / rect.height : 0.77
+  });
   const [rendered, setRendered] = useState<{ key: string; failed: boolean }>();
   const [pageTextLayer, setPageTextLayer] = useState<PageTextLayer>();
   const [textLayerError, setTextLayerError] = useState<{
@@ -190,9 +204,92 @@ export function PagePreviewViewer({
     motion.animEnd = performance.now() + ROTATE_ANIMATION_MS;
   }, [pageId, rotation]);
 
+  // Grow the page from its grid thumbnail to its place in the viewer.
+  useLayoutEffect(() => {
+    const surface = pageSurfaceRef.current;
+    if (
+      !origin ||
+      !surface ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    )
+      return;
+    const from = origin.getBoundingClientRect();
+    const to = surface.getBoundingClientRect();
+    if (from.width === 0 || to.width === 0) return;
+    const scale = from.width / to.width;
+    const animation = surface.animate(
+      [
+        {
+          transformOrigin: "top left",
+          transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${scale})`,
+        },
+        { transformOrigin: "top left", transform: "translate(0, 0) scale(1)" },
+      ],
+      { duration: OPEN_ANIMATION_MS, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" },
+    );
+    // The thumbnail is hidden while its page is in flight so it never shows twice.
+    origin.style.visibility = "hidden";
+    const restore = () => {
+      origin.style.visibility = "";
+    };
+    animation.addEventListener("finish", restore);
+    animation.addEventListener("cancel", restore);
+    return () => {
+      animation.cancel();
+      restore();
+    };
+  }, [origin]);
+
   useEffect(() => {
     if (!page) onClose();
   }, [onClose, page]);
+
+  // Shrinks the page back onto its grid thumbnail, then closes.
+  const requestClose = useCallback(() => {
+    if (isClosingRef.current) return;
+    const surface = pageSurfaceRef.current;
+    const dialog = dialogRef.current;
+    const target = findOriginThumbnail(pageId);
+    if (
+      !surface ||
+      !dialog ||
+      !target ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      onClose();
+      return;
+    }
+    const from = surface.getBoundingClientRect();
+    const to = target.getBoundingClientRect();
+    if (from.width === 0 || to.width === 0) {
+      onClose();
+      return;
+    }
+    isClosingRef.current = true;
+    dialog.style.pointerEvents = "none";
+    target.style.visibility = "hidden";
+    const options = {
+      duration: CLOSE_ANIMATION_MS,
+      easing: "cubic-bezier(0.4, 0, 0.2, 1)",
+      fill: "forwards" as const,
+    };
+    dialog.animate([{ opacity: 1 }, { opacity: 0 }], options);
+    // Anchor to the page's current spot, scrolled or zoomed, so it leaves from where it is.
+    const shrink = surface.animate(
+      [
+        { transformOrigin: "top left", transform: "translate(0, 0) scale(1)" },
+        {
+          transformOrigin: "top left",
+          transform: `translate(${to.left - from.left}px, ${to.top - from.top}px) scale(${to.width / from.width})`,
+        },
+      ],
+      options,
+    );
+    shrink.addEventListener("finish", () => {
+      target.style.visibility = "";
+      onClose();
+    });
+  }, [onClose, pageId]);
 
   useEffect(() => {
     dialogRef.current?.focus();
@@ -418,7 +515,7 @@ export function PagePreviewViewer({
       }
       if (event.key === "Escape") {
         if (isAddingText) patchText({ isAdding: false });
-        else onClose();
+        else requestClose();
       } else if (event.key === "ArrowLeft") {
         if (previousId) onNavigate(previousId);
       } else if (event.key === "ArrowRight") {
@@ -438,7 +535,7 @@ export function PagePreviewViewer({
     changeZoom,
     isAddingText,
     nextId,
-    onClose,
+    requestClose,
     onNavigate,
     onRotate,
     page,
@@ -721,7 +818,7 @@ export function PagePreviewViewer({
           type="button"
           className="page-viewer-close"
           aria-label="Close full view"
-          onClick={onClose}
+          onClick={requestClose}
         >
           <X size={18} />
         </button>
@@ -736,7 +833,7 @@ export function PagePreviewViewer({
           onPointerCancel={handlePanEnd}
           onClick={(event) => {
             if (event.target === event.currentTarget && !panRef.current?.moved)
-              onClose();
+              requestClose();
           }}
         >
           <div
