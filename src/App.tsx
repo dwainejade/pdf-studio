@@ -46,9 +46,8 @@ import { usePdfStore } from './store/pdfStore'
 import { useViewPreferences } from './store/viewPreferences'
 import type { UploadError } from './types/pdf'
 import './App.css'
-import './liquid-glass.css'
-import { LiquidGlass } from './components/layout/LiquidGlass'
-import { MorphBar } from './components/layout/MorphBar'
+import './liquid-motion.css'
+import { GooFilter, GooSurface } from './components/layout/GooSurface'
 
 // Files opened with the installed app arrive through the browser's launch queue (Chromium PWAs only).
 interface LaunchParams {
@@ -610,7 +609,7 @@ function App() {
 
   const hasSelection = selectedPageIds.length > 0
   // The action bar stays mounted briefly after the last page is deselected, so it can animate out.
-  const actionBar = usePresence(hasSelection, 200)
+  const actionBar = usePresence(hasSelection, 360)
   // The bar keeps showing its last count while it leaves.
   const [lastSelectionCount, setLastSelectionCount] = useState(0)
   if (hasSelection && lastSelectionCount !== selectedPageIds.length) setLastSelectionCount(selectedPageIds.length)
@@ -630,6 +629,8 @@ function App() {
     Boolean(contextPages[0].groupId) &&
     contextPages.every((page) => page.groupId === contextPages[0].groupId) &&
     contextPages.length === pages.filter((page) => page.groupId === contextPages[0].groupId).length
+  const contextMenuLeft = contextMenu ? Math.max(8, Math.min(contextMenu.x, window.innerWidth - 228)) : 0
+  const contextMenuTop = contextMenu ? Math.max(8, Math.min(contextMenu.y, window.innerHeight - 300)) : 0
   const contextIsWholeGroup =
     Boolean(contextGroupId) &&
     contextPages.length === pages.filter((page) => page.groupId === contextGroupId).length &&
@@ -724,7 +725,7 @@ function App() {
       })}
     >
       <input {...getInputProps({ className: 'workspace-file-input' })} />
-      <LiquidGlass />
+      <GooFilter />
       <main ref={canvasRef} className={`canvas${activeGroup ? ' group-canvas' : ''}`}>
         <div className="canvas-toolbar">
           {activeGroup && (
@@ -1016,13 +1017,14 @@ function App() {
       </main>
 
       {actionBar.mounted && (
-        <MorphBar
-          className={`page-action-toolbar${actionBar.leaving ? ' is-leaving' : ''}`}
+        <GooSurface
+          className="page-action-toolbar"
           contentClassName="page-action-toolbar-content"
+          leaving={actionBar.leaving}
           aria-label="Page actions"
           aria-hidden={actionBar.leaving}
         >
-          <span className="selection-chip" aria-live="polite">
+          <span className="selection-chip" aria-live="polite" data-goo-blob>
             {/* Re-keyed on every change so the number pops. */}
             <strong key={lastSelectionCount}>{lastSelectionCount}</strong>
             selected
@@ -1036,68 +1038,70 @@ function App() {
               <X size={13} />
             </button>
           </span>
-          <span className="page-action-divider" aria-hidden="true" />
-          {canGroupSelection && (
+          <div className="page-action-group" data-goo-blob>
+            {canGroupSelection && (
+              <button
+                type="button"
+                className="page-action-button"
+                style={indexed(0)}
+                title="Group selected pages (Shift+G)"
+                onClick={() => groupPagesWithAnimation(selectedPageIds)}
+              >
+                <FileStack size={16} />
+                <span>Group</span>
+              </button>
+            )}
+            {selectedPages.some((page) => page.groupId) && (
+              <button
+                type="button"
+                className="page-action-button"
+                style={indexed(1)}
+                onClick={() => ungroupPages(selectedPageIds)}
+              >
+                <Layers size={16} />
+                <span>Ungroup</span>
+              </button>
+            )}
             <button
               type="button"
               className="page-action-button"
-              style={indexed(0)}
-              title="Group selected pages (Shift+G)"
-              onClick={() => groupPagesWithAnimation(selectedPageIds)}
+              style={indexed(2)}
+              onClick={() => duplicateSelection(selectedPageIds)}
             >
-              <FileStack size={16} />
-              <span>Group</span>
+              <Copy size={16} />
+              <span>Duplicate</span>
             </button>
-          )}
-          {selectedPages.some((page) => page.groupId) && (
             <button
               type="button"
               className="page-action-button"
-              style={indexed(1)}
-              onClick={() => ungroupPages(selectedPageIds)}
+              style={indexed(3)}
+              onClick={() => rotatePages(selectedPageIds, 90)}
             >
-              <Layers size={16} />
-              <span>Ungroup</span>
+              <RotateCw size={16} />
+              <span>Rotate 90°</span>
             </button>
-          )}
-          <button
-            type="button"
-            className="page-action-button"
-            style={indexed(2)}
-            onClick={() => duplicateSelection(selectedPageIds)}
-          >
-            <Copy size={16} />
-            <span>Duplicate</span>
-          </button>
-          <button
-            type="button"
-            className="page-action-button"
-            style={indexed(3)}
-            onClick={() => rotatePages(selectedPageIds, 90)}
-          >
-            <RotateCw size={16} />
-            <span>Rotate 90°</span>
-          </button>
-          <button
-            type="button"
-            className="page-action-button destructive"
-            style={indexed(4)}
-            onClick={() => requestDeletePages(selectedPageIds)}
-          >
-            <Trash2 size={16} />
-            <span>Delete</span>
-          </button>
-        </MorphBar>
+            <button
+              type="button"
+              className="page-action-button destructive"
+              style={indexed(4)}
+              onClick={() => requestDeletePages(selectedPageIds)}
+            >
+              <Trash2 size={16} />
+              <span>Delete</span>
+            </button>
+          </div>
+        </GooSurface>
       )}
       {contextMenu && (
-        <div
+        <GooSurface
+          key={`${contextMenu.x},${contextMenu.y}`}
           className="page-context-menu"
+          contentClassName="page-context-menu-content"
           role="menu"
           aria-label="Page actions"
-          style={{
-            left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 228)),
-            top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 300)),
-          }}
+          seed
+          origin={{ x: contextMenu.x - contextMenuLeft, y: contextMenu.y - contextMenuTop }}
+          style={{ left: contextMenuLeft, top: contextMenuTop }}
         >
           {contextMenu.groupId && (
             <button
@@ -1209,7 +1213,7 @@ function App() {
             <Trash2 size={15} />
             Delete
           </button>
-        </div>
+        </GooSurface>
       )}
       {isInspectorOpen && (
         <DocumentInspector

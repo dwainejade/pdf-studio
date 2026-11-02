@@ -1552,28 +1552,27 @@
   bottom: 56px;
   left: 50%;
   translate: -50% 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  border: 1px solid rgba(199, 191, 242, 0.26);
-  border-radius: 16px;
-  background: rgba(20, 19, 27, 0.88);
-  backdrop-filter: blur(16px);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
+  width: max-content;
 }
 
-/* Laid out at its natural size; MorphBar sizes the bar around it. */
+/* Two pills, the selection chip and the actions, drawn by GooSurface (see liquid-motion.css). */
 .page-action-toolbar-content {
-  display: inline-flex;
-  flex: none;
+  display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  width: max-content;
-  max-width: calc(100vw - 50px);
+  max-width: calc(100vw - 32px);
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 18px;
+}
+
+.page-action-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px;
 }
 
 .page-action-button {
@@ -2991,44 +2990,29 @@ button.group-count-badge:hover {
   rotate: 2deg;
 }
 
-/* ---- Floating action bar: springs up when pages are selected and glides away when they are not. ---- */
+/* ---- Floating action bar: rises as a droplet that spreads into the bar (see liquid-motion.css). ---- */
 .page-action-toolbar {
-  transform-origin: 50% 100%;
-  animation: action-bar-in 460ms cubic-bezier(0.34, 1.45, 0.64, 1) both;
-  /* A slight overshoot so size changes feel liquid. */
-  transition:
-    left 320ms var(--ease-out),
-    width 420ms cubic-bezier(0.34, 1.3, 0.64, 1),
-    height 420ms cubic-bezier(0.34, 1.3, 0.64, 1);
+  animation: action-bar-in 520ms cubic-bezier(0.34, 1.45, 0.64, 1) both;
+  transition: left 320ms var(--ease-out);
 }
 
 .page-action-toolbar.is-leaving {
   pointer-events: none;
-  animation: action-bar-out 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
 @keyframes action-bar-in {
   from {
-    opacity: 0;
-    transform: translateY(28px) scale(0.92);
+    transform: translateY(22px);
   }
   to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes action-bar-out {
-  to {
-    opacity: 0;
-    transform: translateY(18px) scale(0.96);
+    transform: translateY(0);
   }
 }
 
 /* Buttons rise in one after another; ones that appear later (Group, Ungroup) pop in on their own. */
 .page-action-toolbar .page-action-button {
   animation: action-button-in 340ms cubic-bezier(0.34, 1.5, 0.64, 1) both;
-  animation-delay: calc(var(--i, 0) * 38ms + 60ms);
+  animation-delay: calc(var(--i, 0) * 38ms + 170ms);
   transition:
     background 150ms ease,
     border-color 150ms ease,
@@ -3136,12 +3120,6 @@ button.group-count-badge:hover {
   transform: rotate(90deg);
 }
 
-.page-action-divider {
-  width: 1px;
-  align-self: stretch;
-  background: rgb(var(--fg) / 0.14);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .page-action-toolbar,
   .page-action-toolbar .page-action-button,
@@ -3150,11 +3128,6 @@ button.group-count-badge:hover {
   }
 
   .page-action-toolbar.is-leaving {
-    animation: none;
     opacity: 0;
-  }
-
-  .page-action-toolbar {
-    transition: none;
   }
 }

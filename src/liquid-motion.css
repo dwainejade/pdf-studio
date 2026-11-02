@@ -1,0 +1,145 @@
+/*
+ * Liquid motion for solid surfaces (GooSurface.tsx): the action bar and the page context menu.
+ * Solid black in dark mode and solid white in light mode; the liquid feel comes from the gooey
+ * blob layer and a spring, not from transparency.
+ */
+
+:root {
+  --goo-fill: #000;
+  --goo-shadow: drop-shadow(0 0 0.5px rgba(255, 255, 255, 0.28)) drop-shadow(0 12px 26px rgba(0, 0, 0, 0.45));
+  /* A damped spring (about 13% overshoot), sampled for CSS linear(). */
+  --spring-liquid: linear(
+    0, 0.042, 0.147, 0.289, 0.446, 0.603, 0.745, 0.868, 0.965, 1.038, 1.087, 1.115, 1.126, 1.124, 1.113,
+    1.096, 1.076, 1.056, 1.038, 1.021, 1.008, 0.998, 0.991, 0.986, 0.984, 0.984, 0.985, 0.987, 0.99, 0.992,
+    0.995, 0.997, 0.999, 1
+  );
+}
+
+:root[data-theme='light'] {
+  --goo-fill: #fff;
+  --goo-shadow: drop-shadow(0 0 0.6px rgba(30, 27, 46, 0.32)) drop-shadow(0 12px 26px rgba(30, 27, 46, 0.16));
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --goo-fill: #fff;
+    --goo-shadow: drop-shadow(0 0 0.6px rgba(30, 27, 46, 0.32)) drop-shadow(0 12px 26px rgba(30, 27, 46, 0.16));
+  }
+}
+
+/* ---- The gooey surface ---- */
+
+.goo-layer {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  filter: url(#goo) var(--goo-shadow);
+  transition:
+    transform 160ms cubic-bezier(0.4, 0, 1, 1),
+    opacity 160ms ease-in;
+}
+
+.goo-blob {
+  position: absolute;
+  background: var(--goo-fill);
+  transition-property: left, top, width, height, border-radius;
+  transition-duration: 640ms;
+  transition-timing-function: cubic-bezier(0.34, 1.45, 0.64, 1);
+  transition-timing-function: var(--spring-liquid);
+  /* Later blobs trail a little, so they bud out of the first one. */
+  transition-delay: calc(var(--goo-i, 0) * 110ms);
+}
+
+.goo-content {
+  position: relative;
+  z-index: 1;
+  transition: opacity 180ms ease 140ms;
+}
+
+/* Mounting: drawn as a droplet, content hidden until it spreads out. */
+.goo-surface.is-seeded .goo-blob {
+  transition: none;
+}
+
+.goo-surface.is-seeded .goo-content {
+  opacity: 0;
+  transition: none;
+}
+
+/* Leaving: content fades first, the blobs gather into a droplet, then the droplet pops. */
+.goo-surface.is-leaving .goo-content {
+  opacity: 0;
+  transition: opacity 90ms ease;
+}
+
+.goo-surface.is-leaving .goo-blob {
+  transition-duration: 220ms;
+  transition-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
+  transition-delay: 0ms;
+}
+
+.goo-surface.is-leaving .goo-layer {
+  transform: scale(0);
+  opacity: 0;
+  transition-delay: 190ms;
+}
+
+/* ---- Action bar ---- */
+
+.page-action-toolbar .selection-chip {
+  align-self: stretch;
+  border-radius: 999px;
+  padding: 0 7px 0 16px;
+}
+
+.page-action-toolbar .page-action-button {
+  border-radius: 999px;
+}
+
+/* ---- Context menu: grows out of a droplet at the cursor ---- */
+
+.page-context-menu {
+  display: block;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.page-context-menu-content {
+  display: grid;
+  gap: 3px;
+  border-radius: 18px;
+  padding: 6px;
+}
+
+.page-context-menu-content button {
+  border-radius: 12px;
+}
+
+/* Menu items arrive just after the surface has spread. */
+.page-context-menu-content > * {
+  animation: goo-item-in 260ms cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  animation-delay: 150ms;
+}
+
+@keyframes goo-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .goo-blob,
+  .goo-layer,
+  .goo-content {
+    transition: none !important;
+  }
+
+  .page-context-menu-content > * {
+    animation: none;
+  }
+}
