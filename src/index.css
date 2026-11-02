@@ -110,9 +110,8 @@
   }
 }
 
-/* The page viewer and floating action bar are dark surfaces in either theme. */
-.page-viewer,
-.page-action-toolbar {
+/* The page viewer is a dark surface in either theme. */
+.page-viewer {
   --fg: 255 255 255;
   --text: #e7e5ec;
   --text-muted: #b4b0c0;

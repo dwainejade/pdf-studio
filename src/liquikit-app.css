@@ -1,0 +1,63 @@
+/*
+ * How the app's action bar and context menu sit on liquikit's glass (src/components/liquikit).
+ * liquikit's GlassPane draws the surface, so the app's own surface styles are cleared here.
+ */
+
+/* ---- Action bar: a positioner only; the liquikit toolbar inside is the glass. ---- */
+
+.page-action-toolbar {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.page-action-toolbar .glass-ui-toolbar__row {
+  gap: 4px;
+  padding: 6px 8px 6px 6px;
+}
+
+.page-action-toolbar .selection-chip {
+  padding: 0 4px 0 12px;
+  color: inherit;
+}
+
+.page-action-toolbar .selection-chip strong {
+  color: inherit;
+}
+
+/* liquikit's toolbar buttons replace the app's bordered action buttons. */
+.page-action-toolbar .glass-ui-toolbar__button.page-action-button {
+  border: 0;
+  background: none;
+  padding: 0 14px;
+  font-size: 13px;
+  box-shadow: none;
+}
+
+.page-action-toolbar .glass-ui-toolbar__button.page-action-button:hover {
+  box-shadow: none;
+}
+
+.page-action-toolbar .glass-ui-toolbar__button.page-action-button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.page-action-toolbar .glass-ui-toolbar__button.destructive,
+.glass-ui-menu__item.destructive {
+  color: var(--danger-text);
+}
+
+/* ---- Context menu ---- */
+
+.glass-ui-menu.page-glass-menu .glass-ui-menu__list {
+  min-width: 230px;
+}
+
+.glass-ui-menu.page-glass-menu .glass-ui-menu__item {
+  font-size: 13.5px;
+}
