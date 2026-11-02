@@ -1,6 +1,7 @@
 import { animate, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
 import { useCallback, useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
 import { GlassPane, type GlassTheme } from '../liquikit/glass'
+import { GLASS_LENS } from './glassLook'
 
 /**
  * The one bottom action bar. Every screen's actions live in it as a layer; the glass morphs from
@@ -104,7 +105,14 @@ export function LiquidBar({
 
   return (
     <div className={['liquid-bar', className].filter(Boolean).join(' ')} role="region" aria-label={label}>
-      <GlassPane radius="capsule" theme={theme} shape={shape} reach={REACH} style={{ width: box.width, height: box.height }}>
+      <GlassPane
+        radius="capsule"
+        theme={theme}
+        lens={GLASS_LENS[theme]}
+        shape={shape}
+        reach={REACH}
+        style={{ width: box.width, height: box.height }}
+      >
         <div className="liquid-bar-stack" style={{ width: box.width, height: box.height }}>
           {layers.map((layer) => (
             <Layer key={layer.key} layer={layer} active={layer.key === active && !leaving} elements={elements} />

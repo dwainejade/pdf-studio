@@ -26,6 +26,8 @@ import {
 import { TextLayer } from "pdfjs-dist";
 import type { PageTextBox, PdfPage, UploadedPdf } from "../../types/pdf";
 import { PageTextEditor } from "./PageTextOverlay";
+import { Button as GlassButton } from "../liquikit/button";
+import { GLASS_LENS } from "../layout/glassLook";
 import { displayName } from "../../lib/displayName";
 import {
   DEFAULT_TEXT_SIZE,
@@ -829,14 +831,17 @@ export function PagePreviewViewer({
             Page {page.pageNumber} · {index + 1} of {pages.length}
           </span>
         </div>
-        <button
-          type="button"
+        <GlassButton
           className="page-viewer-close"
+          icon
+          size="regular"
+          theme="dark"
+          lens={GLASS_LENS.dark}
           aria-label="Close full view"
           onClick={requestClose}
         >
           <X size={18} />
-        </button>
+        </GlassButton>
       </header>
       <div className="page-viewer-stage-wrap">
         <div
@@ -919,24 +924,30 @@ export function PagePreviewViewer({
         {isLoading && !showFailure && (
           <span className="loading-spinner page-viewer-spinner" />
         )}
-        <button
-          type="button"
+        <GlassButton
           className="page-viewer-nav is-previous"
+          icon
+          size="large"
+          theme="dark"
+          lens={GLASS_LENS.dark}
           aria-label="Previous page"
           disabled={!previousId}
           onClick={() => previousId && onNavigate(previousId)}
         >
           <ChevronLeft size={26} />
-        </button>
-        <button
-          type="button"
+        </GlassButton>
+        <GlassButton
           className="page-viewer-nav is-next"
+          icon
+          size="large"
+          theme="dark"
+          lens={GLASS_LENS.dark}
           aria-label="Next page"
           disabled={!nextId}
           onClick={() => nextId && onNavigate(nextId)}
         >
           <ChevronRight size={26} />
-        </button>
+        </GlassButton>
       </div>
       <ViewerToolbar slot={toolbarSlot} hidden={isClosing}>
         <div className="page-viewer-zoom" role="group" aria-label="Zoom">
