@@ -46,6 +46,9 @@ import { usePdfStore } from './store/pdfStore'
 import { useViewPreferences } from './store/viewPreferences'
 import type { UploadError } from './types/pdf'
 import './App.css'
+import './liquid-glass.css'
+import { LiquidGlass } from './components/layout/LiquidGlass'
+import { MorphBar } from './components/layout/MorphBar'
 
 // Files opened with the installed app arrive through the browser's launch queue (Chromium PWAs only).
 interface LaunchParams {
@@ -721,6 +724,7 @@ function App() {
       })}
     >
       <input {...getInputProps({ className: 'workspace-file-input' })} />
+      <LiquidGlass />
       <main ref={canvasRef} className={`canvas${activeGroup ? ' group-canvas' : ''}`}>
         <div className="canvas-toolbar">
           {activeGroup && (
@@ -1012,8 +1016,9 @@ function App() {
       </main>
 
       {actionBar.mounted && (
-        <div
+        <MorphBar
           className={`page-action-toolbar${actionBar.leaving ? ' is-leaving' : ''}`}
+          contentClassName="page-action-toolbar-content"
           aria-label="Page actions"
           aria-hidden={actionBar.leaving}
         >
@@ -1082,7 +1087,7 @@ function App() {
             <Trash2 size={16} />
             <span>Delete</span>
           </button>
-        </div>
+        </MorphBar>
       )}
       {contextMenu && (
         <div

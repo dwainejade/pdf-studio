@@ -1,5 +1,5 @@
 {
-  "ignorePatterns": ["public/pdfjs/**"],
+  "ignorePatterns": ["public/pdfjs/**", "src/vendor/**"],
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["react", "typescript", "oxc"],
   "rules": {
