@@ -1,0 +1,161 @@
+.glass {
+	position: relative;
+	display: block;
+	overflow: visible;
+}
+
+:where(.glass-scope) {
+	transform: translate(0);
+}
+
+.glass-scope__backdrop,
+.glass-scope__lens {
+	position: absolute;
+	z-index: -1;
+	pointer-events: none;
+}
+
+.glass-scope__backdrop {
+	inset: 0;
+}
+
+/* The filtered layer of a content scope, padded by the bleed. WebKit measures
+   a filter from the nearest transformed element. */
+.glass-scope__content {
+	position: relative;
+	box-sizing: content-box;
+	height: 100%;
+	transform: translate(0);
+	/* Inherited so a recolour follows at once; painted inside the bleed only. */
+	background: inherit;
+	background-clip: content-box;
+	background-origin: content-box;
+	pointer-events: none;
+}
+
+/* Or the layer's negative margin collapses through the scope. */
+.glass-scope--in-place {
+	contain: layout;
+}
+
+/* The scope's own box, isolated so the backdrop's z-index -1 stays above
+   the layer's background. */
+.glass-scope__inner {
+	position: relative;
+	height: 100%;
+	isolation: isolate;
+	pointer-events: auto;
+}
+
+.glass-scope__defs {
+	position: absolute;
+	width: 0;
+	height: 0;
+	overflow: hidden;
+	pointer-events: none;
+}
+
+/* Safari paints a partial repaint of a filtered layer black, so the lens
+   keeps a layer of its own. WebKit measures a filter from the nearest
+   transformed element, so it carries an identity transform too. */
+.glass-scope__lens {
+	top: 0;
+	left: 0;
+	width: 0;
+	height: 0;
+	overflow: hidden;
+	transform: translate(0);
+	will-change: transform;
+}
+
+.glass-scope__frost,
+.glass-scope__copy {
+	position: absolute;
+}
+
+.glass-scope__frost {
+	inset: 0;
+}
+
+.glass__target {
+	position: absolute;
+	top: 0;
+	left: 0;
+	pointer-events: none;
+	transform-origin: left top;
+	will-change: filter, clip-path;
+}
+
+.glass__target-inner {
+	transform-origin: left top;
+}
+
+.glass__backdrop {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+.glass__defs {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	overflow: visible;
+	pointer-events: none;
+}
+
+.glass__rim {
+	position: absolute;
+	top: 0;
+	left: 0;
+	box-sizing: border-box;
+	pointer-events: none;
+	will-change: transform, opacity;
+}
+
+.glass__tint {
+	position: absolute;
+	top: 0;
+	left: 0;
+	overflow: hidden;
+	pointer-events: none;
+	will-change: transform, opacity;
+}
+
+.glass__frost {
+	position: absolute;
+	top: 0;
+	left: 0;
+	pointer-events: none;
+	will-change: transform, backdrop-filter;
+}
+
+.glass__face {
+	position: absolute;
+	top: 0;
+	left: 0;
+	pointer-events: none;
+}
+
+.glass__light {
+	position: absolute;
+	top: 0;
+	left: 0;
+	pointer-events: none;
+	background-repeat: no-repeat;
+	background-size: 100% 100%;
+	will-change: transform;
+}
+
+/* Overlays in a filtered layer must not be composited. */
+.glass[data-flat] .glass__rim,
+.glass[data-flat] .glass__tint,
+.glass[data-flat] .glass__frost,
+.glass[data-flat] .glass__light {
+	will-change: auto;
+}
+
+.glass-theme {
+	display: contents;
+}

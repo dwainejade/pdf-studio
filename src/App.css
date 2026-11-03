@@ -951,7 +951,7 @@
 }
 
 .app-shell:has(.document-inspector) .page-action-toolbar {
-  right: 364px;
+  left: calc(50% - 170px);
 }
 
 .page-expand-button {
@@ -1132,7 +1132,7 @@
   min-width: 0;
   flex: 1;
   overflow: auto;
-  padding: 0 80px 84px;
+  padding: 0 80px 124px;
   overscroll-behavior: contain;
 }
 
@@ -1549,14 +1549,13 @@
 .page-action-toolbar {
   position: fixed;
   z-index: 10;
-  right: 24px;
   bottom: 56px;
-  display: inline-flex;
-  flex-wrap: wrap;
-  max-width: calc(100vw - 48px);
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  justify-content: center;
+  overflow: hidden;
   border: 1px solid rgba(199, 191, 242, 0.26);
   border-radius: 16px;
   background: rgba(20, 19, 27, 0.88);
@@ -2419,7 +2418,7 @@
   }
 
   .app-shell:has(.document-inspector) .page-action-toolbar {
-    right: 24px;
+    left: 50%;
   }
 
   .canvas-toolbar {
@@ -2983,7 +2982,7 @@ button.group-count-badge:hover {
 .page-action-toolbar {
   transform-origin: 50% 100%;
   animation: action-bar-in 460ms cubic-bezier(0.34, 1.45, 0.64, 1) both;
-  transition: right 320ms var(--ease-out);
+  transition: left 320ms var(--ease-out);
 }
 
 .page-action-toolbar.is-leaving {
@@ -3136,5 +3135,9 @@ button.group-count-badge:hover {
   .page-action-toolbar.is-leaving {
     animation: none;
     opacity: 0;
+  }
+
+  .page-action-toolbar {
+    transition: none;
   }
 }

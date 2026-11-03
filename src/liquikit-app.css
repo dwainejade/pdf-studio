@@ -1,0 +1,266 @@
+/*
+ * The app on liquikit's glass (src/components/liquikit): the one shared bottom bar (LiquidBar)
+ * and the page context menu. liquikit's GlassPane draws the surfaces, so the app's own surface
+ * styles are cleared here.
+ */
+
+/* ---- Shared bottom bar ---- */
+
+/* A positioner only; the glass pane inside is the bar. Above the page viewer, so the same bar
+   carries on when a page is maximized. */
+.page-action-toolbar {
+  z-index: 45;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* The glass grows out of a droplet on its own, so the bar only rises. Transform only, and not
+   kept after it ends: an animated opacity makes the bar a backdrop root, and the frost inside
+   it would stop blurring the page. */
+.page-action-toolbar {
+  animation: liquid-bar-rise 420ms cubic-bezier(0.34, 1.45, 0.64, 1) backwards;
+}
+
+@keyframes liquid-bar-rise {
+  from {
+    transform: translateY(18px);
+  }
+}
+
+/* The viewer covers the inspector, so its bar centres on the window. */
+.app-shell:has(.document-inspector) .page-action-toolbar.is-viewer {
+  left: 50%;
+}
+
+/* How long content waits for the glass to finish reshaping before it shows: the bar's spring
+   (LiquidBar's SWELL) has mostly settled by then. */
+.liquid-bar {
+  --bar-reveal: 340ms;
+}
+
+/* The pane's box is as big as the largest layer; only the glass shape inside it takes clicks. */
+.liquid-bar .glass-pane {
+  pointer-events: none;
+}
+
+.liquid-bar-stack {
+  position: relative;
+}
+
+/* Every screen's controls sit centred on the same spot. The outgoing ones blur away at once; the
+   incoming ones come into focus once the glass has reached its new shape. */
+.liquid-bar-layer {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max-content;
+  translate: -50% -50%;
+  opacity: 0;
+  filter: blur(8px);
+  scale: 0.9;
+  pointer-events: none;
+  transition:
+    opacity 140ms ease,
+    filter 180ms ease,
+    scale 220ms ease;
+}
+
+.liquid-bar-layer[data-active] {
+  opacity: 1;
+  filter: none;
+  scale: 1;
+  pointer-events: auto;
+  transition:
+    opacity 200ms ease var(--bar-reveal),
+    filter 240ms ease var(--bar-reveal),
+    scale 360ms cubic-bezier(0.3, 1.4, 0.5, 1) var(--bar-reveal);
+}
+
+/* Controls that join a showing bar (Group, Ungroup, the text style controls) wait for the glass
+   to widen, then pop in. Runs only when an item mounts, so the others stay put. */
+.liquid-bar-row > * {
+  animation: bar-item-in 280ms cubic-bezier(0.3, 1.4, 0.5, 1) var(--bar-reveal) backwards;
+}
+
+.liquid-bar .page-action-button {
+  animation-delay: calc(var(--i, 0) * 38ms + var(--bar-reveal));
+}
+
+@keyframes bar-item-in {
+  from {
+    opacity: 0;
+    scale: 0.85;
+  }
+}
+
+/* ---- Light across the top of the glass ----
+   A soft sheen and a bright top edge, laid over liquikit's own rim light and clipped to the
+   glass, so it follows the bar as it morphs. --glass-top-light sets its strength (0 turns it off). */
+.liquid-bar .glass-pane[data-theme='dark'],
+.page-viewer-close.glass-ui-button,
+.page-viewer-nav.glass-ui-button {
+  --glass-top-light: 0.16;
+}
+
+.liquid-bar .glass-pane[data-theme='light'] {
+  --glass-top-light: 0.5;
+}
+
+.liquid-bar .glass__light,
+.page-viewer-close.glass-ui-button .glass__light,
+.page-viewer-nav.glass-ui-button .glass__light {
+  border-radius: 999px;
+}
+
+.liquid-bar .glass__light::before,
+.page-viewer-close.glass-ui-button .glass__light::before,
+.page-viewer-nav.glass-ui-button .glass__light::before {
+  position: absolute;
+  inset: 0;
+  content: '';
+  border-radius: inherit;
+  background: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / calc(var(--glass-top-light) * 0.6)),
+    rgb(255 255 255 / 0) 55%
+  );
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / calc(var(--glass-top-light) * 1.6));
+  pointer-events: none;
+}
+
+.liquid-bar-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - 32px);
+  padding: 6px 8px;
+}
+
+.liquid-bar .selection-chip {
+  padding: 0 4px 0 10px;
+  color: inherit;
+}
+
+.liquid-bar .selection-chip strong {
+  color: inherit;
+}
+
+/* One button look for every screen: liquikit's toolbar buttons. */
+.liquid-bar .glass-ui-toolbar__button.page-action-button {
+  border: 0;
+  background: none;
+  padding: 0 14px;
+  color: var(--text);
+  font-size: 13px;
+  box-shadow: none;
+}
+
+.liquid-bar .glass-ui-toolbar__button.page-action-button[data-icon] {
+  width: 38px;
+  padding: 0;
+}
+
+.liquid-bar .glass-ui-toolbar__button.page-action-button:hover {
+  box-shadow: none;
+}
+
+.liquid-bar .glass-ui-toolbar__button.page-action-button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.liquid-bar .glass-ui-toolbar__button.page-action-button.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.liquid-bar .glass-ui-toolbar__button.destructive,
+.glass-ui-menu__item.destructive {
+  color: var(--danger-text);
+}
+
+/* The viewer's zoom group, as a capsule inside the bar. */
+.liquid-bar .page-viewer-zoom {
+  border: 0;
+  border-radius: 999px;
+  background: rgb(var(--fg) / 0.07);
+}
+
+.liquid-bar .page-viewer-zoom .glass-ui-toolbar__button {
+  color: var(--text);
+}
+
+.liquid-bar .page-viewer-zoom-level.glass-ui-toolbar__button {
+  min-width: 58px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.liquid-bar .page-viewer-zoom-button:disabled {
+  opacity: 0.3;
+}
+
+.liquid-bar .page-viewer-toolbar-divider {
+  width: 1px;
+  height: 22px;
+  margin: 0 4px;
+}
+
+/* ---- Maximized page: close and previous/next are liquikit glass buttons ---- */
+
+.page-viewer-close.glass-ui-button,
+.page-viewer-nav.glass-ui-button {
+  width: auto;
+  height: auto;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: rgb(255 255 255 / 0.92);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.page-viewer-close.glass-ui-button:hover,
+.page-viewer-nav.glass-ui-button:hover:not(:disabled) {
+  background: none;
+}
+
+/* The glass answers a press itself, so the nav buttons no longer grow on hover. */
+.page-viewer-nav.glass-ui-button:hover:not(:disabled) {
+  transform: translateY(-50%);
+}
+
+.page-viewer-nav.glass-ui-button[data-disabled] {
+  opacity: 0.3;
+}
+
+/* ---- Context menu ---- */
+
+.glass-ui-menu.page-glass-menu .glass-ui-menu__list {
+  min-width: 230px;
+}
+
+.glass-ui-menu.page-glass-menu .glass-ui-menu__item {
+  font-size: 13.5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liquid-bar-layer,
+  .liquid-bar-layer[data-active] {
+    filter: none;
+    scale: 1;
+    transition: opacity 120ms ease;
+  }
+
+  .liquid-bar-row > *,
+  .liquid-bar .page-action-button {
+    animation: none;
+  }
+}

@@ -46,6 +46,13 @@ import { usePdfStore } from './store/pdfStore'
 import { useViewPreferences } from './store/viewPreferences'
 import type { UploadError } from './types/pdf'
 import './App.css'
+import { PointMenu } from './components/layout/PointMenu'
+import { Toolbar as BaseToolbar } from '@base-ui/react/toolbar'
+import { Toolbar } from './components/liquikit/toolbar'
+import { LiquidBar } from './components/layout/LiquidBar'
+import { MenuItem } from './components/liquikit/menu'
+import { useResolvedTheme } from './lib/useResolvedTheme'
+import './liquikit-app.css'
 
 // Files opened with the installed app arrive through the browser's launch queue (Chromium PWAs only).
 interface LaunchParams {
@@ -187,6 +194,7 @@ function App() {
   const redo = usePdfStore((state) => state.redo)
   const theme = useViewPreferences((state) => state.theme)
   const setTheme = useViewPreferences((state) => state.setTheme)
+  const glassTheme = useResolvedTheme(theme)
   const thumbnailSize = useViewPreferences((state) => state.thumbnailSize)
   const searchQuery = useViewPreferences((state) => state.searchQuery)
   const setThumbnailSize = useViewPreferences((state) => state.setThumbnailSize)
@@ -606,8 +614,16 @@ function App() {
   })
 
   const hasSelection = selectedPageIds.length > 0
-  // The action bar stays mounted briefly after the last page is deselected, so it can animate out.
-  const actionBar = usePresence(hasSelection, 200)
+  // One bottom bar for every screen: the maximized page's controls while the viewer is open
+  // (it hands them over as soon as it starts closing), the selection's actions otherwise.
+  const [viewerToolbarSlot, setViewerToolbarSlot] = useState<HTMLElement | null>(null)
+  const [isViewerClosing, setIsViewerClosing] = useState(false)
+  const barMode = viewerPageId && !isViewerClosing ? 'viewer' : hasSelection ? 'grid' : null
+  // The bar stays mounted briefly after it empties, so it can shrink away.
+  const actionBar = usePresence(barMode !== null, 300)
+  const [lastBarMode, setLastBarMode] = useState<'grid' | 'viewer'>(barMode ?? 'grid')
+  if (barMode && barMode !== lastBarMode) setLastBarMode(barMode)
+  const showGridActions = hasSelection || (actionBar.leaving && lastBarMode === 'grid')
   // The bar keeps showing its last count while it leaves.
   const [lastSelectionCount, setLastSelectionCount] = useState(0)
   if (hasSelection && lastSelectionCount !== selectedPageIds.length) setLastSelectionCount(selectedPageIds.length)
@@ -618,10 +634,14 @@ function App() {
     selectedPages.every((page) => page.groupId === selectedPages[0].groupId) &&
     selectedPages.length === pages.filter((page) => page.groupId === selectedPages[0].groupId).length
   const canGroupSelection = selectedPages.length >= 2 && !selectedPagesAreOneGroup
-  const contextPages = contextMenu
-    ? pages.filter((page) => contextMenu.pageIds.includes(page.id))
+  // The menu plays an exit after it closes, so it keeps showing the last menu's items meanwhile.
+  const [lastContextMenu, setLastContextMenu] = useState(contextMenu)
+  if (contextMenu && contextMenu !== lastContextMenu) setLastContextMenu(contextMenu)
+  const menuData = contextMenu ?? lastContextMenu
+  const contextPages = menuData
+    ? pages.filter((page) => menuData.pageIds.includes(page.id))
     : []
-  const contextGroupId = contextMenu?.groupId
+  const contextGroupId = menuData?.groupId
   const contextPagesAreOneGroup =
     contextPages.length > 0 &&
     Boolean(contextPages[0].groupId) &&
@@ -631,17 +651,20 @@ function App() {
     Boolean(contextGroupId) &&
     contextPages.length === pages.filter((page) => page.groupId === contextGroupId).length &&
     contextPages.every((page) => page.groupId === contextGroupId)
-  const renameTarget = contextMenu
-    ? (contextMenu.groupId && contextIsWholeGroup
-        ? document.querySelector<HTMLElement>(`.group-card[data-group-id="${CSS.escape(contextMenu.groupId)}"]`)
+  const renameTarget = menuData
+    ? (menuData.groupId && contextIsWholeGroup
+        ? document.querySelector<HTMLElement>(`.group-card[data-group-id="${CSS.escape(menuData.groupId)}"]`)
         : null) ??
-      (contextMenu.pageIds.length === 1
-        ? document.querySelector<HTMLElement>(`[data-page-id="${CSS.escape(contextMenu.pageIds[0])}"]:not(.group-card)`)
+      (menuData.pageIds.length === 1
+        ? document.querySelector<HTMLElement>(`[data-page-id="${CSS.escape(menuData.pageIds[0])}"]:not(.group-card)`)
         : null)
     : null
   const canGroupContext = contextPages.length >= 2 && !contextPagesAreOneGroup
   const canUngroupContext = contextPages.some((page) => page.groupId)
-  const closeViewer = useCallback(() => setViewerPageId(null), [])
+  const closeViewer = useCallback(() => {
+    setViewerPageId(null)
+    setIsViewerClosing(false)
+  }, [])
   const openGroup = (groupId: string) => {
     const motion = groupMotionRef.current
     const card = findGroupCard(groupId)
@@ -694,24 +717,6 @@ function App() {
     const duplicatedGroupId = duplicatePages(pageIds)
     if (activeGroupId && duplicatedGroupId) setActiveGroupId(duplicatedGroupId)
   }
-
-  useEffect(() => {
-    if (!contextMenu) return
-    const dismissOnKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setContextMenu(null)
-    }
-    const dismissOutsideMenu = (event: PointerEvent) => {
-      if (!(event.target instanceof Element) || !event.target.closest('.page-context-menu')) {
-        setContextMenu(null)
-      }
-    }
-    window.addEventListener('keydown', dismissOnKeyDown)
-    window.addEventListener('pointerdown', dismissOutsideMenu)
-    return () => {
-      window.removeEventListener('keydown', dismissOnKeyDown)
-      window.removeEventListener('pointerdown', dismissOutsideMenu)
-    }
-  }, [contextMenu])
 
   return (
     <div
@@ -1012,200 +1017,189 @@ function App() {
       </main>
 
       {actionBar.mounted && (
-        <div
-          className={`page-action-toolbar${actionBar.leaving ? ' is-leaving' : ''}`}
-          aria-label="Page actions"
-          aria-hidden={actionBar.leaving}
-        >
-          <span className="selection-chip" aria-live="polite">
-            {/* Re-keyed on every change so the number pops. */}
-            <strong key={lastSelectionCount}>{lastSelectionCount}</strong>
-            selected
-            <button
-              type="button"
-              className="selection-chip-clear"
-              aria-label="Clear selection"
-              title="Clear selection (Esc)"
-              onClick={clearSelection}
-            >
-              <X size={13} />
-            </button>
-          </span>
-          <span className="page-action-divider" aria-hidden="true" />
-          {canGroupSelection && (
-            <button
-              type="button"
-              className="page-action-button"
-              style={indexed(0)}
-              title="Group selected pages (Shift+G)"
-              onClick={() => groupPagesWithAnimation(selectedPageIds)}
-            >
-              <FileStack size={16} />
-              <span>Group</span>
-            </button>
-          )}
-          {selectedPages.some((page) => page.groupId) && (
-            <button
-              type="button"
-              className="page-action-button"
-              style={indexed(1)}
-              onClick={() => ungroupPages(selectedPageIds)}
-            >
-              <Layers size={16} />
-              <span>Ungroup</span>
-            </button>
-          )}
-          <button
-            type="button"
-            className="page-action-button"
-            style={indexed(2)}
-            onClick={() => duplicateSelection(selectedPageIds)}
-          >
-            <Copy size={16} />
-            <span>Duplicate</span>
-          </button>
-          <button
-            type="button"
-            className="page-action-button"
-            style={indexed(3)}
-            onClick={() => rotatePages(selectedPageIds, 90)}
-          >
-            <RotateCw size={16} />
-            <span>Rotate 90°</span>
-          </button>
-          <button
-            type="button"
-            className="page-action-button destructive"
-            style={indexed(4)}
-            onClick={() => requestDeletePages(selectedPageIds)}
-          >
-            <Trash2 size={16} />
-            <span>Delete</span>
-          </button>
-        </div>
+        <LiquidBar
+          className={`page-action-toolbar${lastBarMode === 'viewer' ? ' is-viewer' : ''}${actionBar.leaving ? ' is-leaving' : ''}`}
+          label="Page actions"
+          active={lastBarMode}
+          leaving={actionBar.leaving}
+          layers={[
+            {
+              key: 'grid',
+              theme: glassTheme,
+              content: showGridActions && (
+                <BaseToolbar.Root className="liquid-bar-row" aria-label="Selected pages">
+                  <span className="selection-chip" aria-live="polite">
+                    {/* Re-keyed on every change so the number pops. */}
+                    <strong key={lastSelectionCount}>{lastSelectionCount}</strong>
+                    selected
+                    <button
+                      type="button"
+                      className="selection-chip-clear"
+                      aria-label="Clear selection"
+                      title="Clear selection (Esc)"
+                      onClick={clearSelection}
+                    >
+                      <X size={13} />
+                    </button>
+                  </span>
+                  <Toolbar.Separator />
+                  {canGroupSelection && (
+                    <Toolbar.Button
+                      className="page-action-button"
+                      style={indexed(0)}
+                      title="Group selected pages (Shift+G)"
+                      onClick={() => groupPagesWithAnimation(selectedPageIds)}
+                    >
+                      <FileStack size={16} />
+                      <span>Group</span>
+                    </Toolbar.Button>
+                  )}
+                  {selectedPages.some((page) => page.groupId) && (
+                    <Toolbar.Button
+                      className="page-action-button"
+                      style={indexed(1)}
+                      onClick={() => ungroupPages(selectedPageIds)}
+                    >
+                      <Layers size={16} />
+                      <span>Ungroup</span>
+                    </Toolbar.Button>
+                  )}
+                  <Toolbar.Button
+                    className="page-action-button"
+                    style={indexed(2)}
+                    onClick={() => duplicateSelection(selectedPageIds)}
+                  >
+                    <Copy size={16} />
+                    <span>Duplicate</span>
+                  </Toolbar.Button>
+                  <Toolbar.Button
+                    className="page-action-button"
+                    style={indexed(3)}
+                    onClick={() => rotatePages(selectedPageIds, 90)}
+                  >
+                    <RotateCw size={16} />
+                    <span>Rotate 90°</span>
+                  </Toolbar.Button>
+                  <Toolbar.Button
+                    className="page-action-button destructive"
+                    style={indexed(4)}
+                    onClick={() => requestDeletePages(selectedPageIds)}
+                  >
+                    <Trash2 size={16} />
+                    <span>Delete</span>
+                  </Toolbar.Button>
+                </BaseToolbar.Root>
+              ),
+            },
+            // The viewer portals its own controls into this layer (see PagePreviewViewer).
+            { key: 'viewer', theme: 'dark', slotRef: setViewerToolbarSlot, className: 'is-dark' },
+          ]}
+        />
       )}
-      {contextMenu && (
-        <div
-          className="page-context-menu"
-          role="menu"
-          aria-label="Page actions"
-          style={{
-            left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 228)),
-            top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 300)),
-          }}
-        >
-          {contextMenu.groupId && (
-            <button
-              type="button"
-              role="menuitem"
+      <PointMenu
+        open={Boolean(contextMenu)}
+        point={contextMenu && { x: contextMenu.x, y: contextMenu.y }}
+        onClose={() => setContextMenu(null)}
+        theme={glassTheme}
+        label="Page actions"
+      >
+        {menuData && (
+          <>
+            {menuData.groupId && (
+              <MenuItem
+                icon={<Layers size={15} />}
+                onClick={() => {
+                  if (menuData.groupId) openGroup(menuData.groupId)
+                  setContextMenu(null)
+                }}
+              >
+                Open group
+              </MenuItem>
+            )}
+            <MenuItem
+              icon={<Copy size={15} />}
               onClick={() => {
-                if (contextMenu.groupId) openGroup(contextMenu.groupId)
+                duplicateSelection(menuData.pageIds)
                 setContextMenu(null)
               }}
             >
-              <Layers size={15} />
-              Open group
-            </button>
-          )}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              duplicateSelection(contextMenu.pageIds)
-              setContextMenu(null)
-            }}
-          >
-            <Copy size={15} />
-            Duplicate {contextIsWholeGroup ? 'group' : contextMenu.pageIds.length === 1 ? 'page' : 'pages'}
-          </button>
-          {canGroupContext && (
-            <button
-              type="button"
-              role="menuitem"
+              Duplicate {contextIsWholeGroup ? 'group' : menuData.pageIds.length === 1 ? 'page' : 'pages'}
+            </MenuItem>
+            {canGroupContext && (
+              <MenuItem
+                icon={<FileStack size={15} />}
+                onClick={() => {
+                  groupPagesWithAnimation(menuData.pageIds)
+                  setContextMenu(null)
+                }}
+              >
+                Group
+              </MenuItem>
+            )}
+            {canUngroupContext && (
+              <MenuItem
+                icon={<Layers size={15} />}
+                onClick={() => {
+                  ungroupPages(menuData.pageIds)
+                  setContextMenu(null)
+                }}
+              >
+                Ungroup
+              </MenuItem>
+            )}
+            {renameTarget && (
+              <MenuItem
+                icon={<Pencil size={15} />}
+                onClick={() => {
+                  setContextMenu(null)
+                  // Start renaming once the menu has let go of focus.
+                  window.requestAnimationFrame(() => renameTarget.dispatchEvent(new Event(RENAME_EVENT)))
+                }}
+              >
+                Rename
+              </MenuItem>
+            )}
+            <MenuItem
+              icon={<FilePlus size={15} />}
               onClick={() => {
-                groupPagesWithAnimation(contextMenu.pageIds)
+                const lastId = menuData.pageIds[menuData.pageIds.length - 1]
+                setContextMenu(null)
+                void addBlankPage(lastId)
+              }}
+            >
+              Insert blank page after
+            </MenuItem>
+            <MenuItem
+              icon={<ZoomIn size={15} />}
+              onClick={() => {
+                setViewerPageId(menuData.pageIds[0])
                 setContextMenu(null)
               }}
             >
-              <FileStack size={15} />
-              Group
-            </button>
-          )}
-          {canUngroupContext && (
-            <button
-              type="button"
-              role="menuitem"
+              Preview
+            </MenuItem>
+            <MenuItem
+              icon={<RotateCw size={15} />}
               onClick={() => {
-                ungroupPages(contextMenu.pageIds)
+                rotatePages(menuData.pageIds, 90)
                 setContextMenu(null)
               }}
             >
-              <Layers size={15} />
-              Ungroup
-            </button>
-          )}
-          {renameTarget && (
-            <button
-              type="button"
-              role="menuitem"
+              Rotate 90°
+            </MenuItem>
+            <MenuItem
+              className="destructive"
+              icon={<Trash2 size={15} />}
               onClick={() => {
+                requestDeletePages(menuData.pageIds)
                 setContextMenu(null)
-                // Wait for the menu to unmount so the input keeps focus.
-                window.requestAnimationFrame(() => renameTarget.dispatchEvent(new Event(RENAME_EVENT)))
               }}
             >
-              <Pencil size={15} />
-              Rename
-            </button>
-          )}
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              const lastId = contextMenu.pageIds[contextMenu.pageIds.length - 1]
-              setContextMenu(null)
-              void addBlankPage(lastId)
-            }}
-          >
-            <FilePlus size={15} />
-            Insert blank page after
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setViewerPageId(contextMenu.pageIds[0])
-              setContextMenu(null)
-            }}
-          >
-            <ZoomIn size={15} />
-            Preview
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              rotatePages(contextMenu.pageIds, 90)
-              setContextMenu(null)
-            }}
-          >
-            <RotateCw size={15} />
-            Rotate 90°
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="destructive"
-            onClick={() => {
-              requestDeletePages(contextMenu.pageIds)
-              setContextMenu(null)
-            }}
-          >
-            <Trash2 size={15} />
-            Delete
-          </button>
-        </div>
-      )}
+              Delete
+            </MenuItem>
+          </>
+        )}
+      </PointMenu>
       {isInspectorOpen && (
         <DocumentInspector
           page={inspectedPage}
@@ -1230,6 +1224,8 @@ function App() {
           onDelete={(pageId) => requestDeletePages([pageId])}
           onUpdateText={setPageTextBoxes}
           onClose={closeViewer}
+          onCloseStart={() => setIsViewerClosing(true)}
+          toolbarSlot={viewerToolbarSlot}
         />
       )}
 
