@@ -781,6 +781,8 @@
   /* Individual `scale` composes with the rotate transform set inline, leaving a margin around the page. */
   scale: 0.9;
   image-rendering: auto;
+  /* A straightened page turns inside its frame; the corners it uncovers stay white. */
+  overflow: hidden;
 }
 
 .page-thumbnail-canvas {
@@ -2824,6 +2826,24 @@ button.group-count-badge:hover {
 .page-action-button.is-active {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+.page-straighten-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-straighten-controls input[type='range'] {
+  width: 140px;
+  accent-color: var(--accent-strong);
+}
+
+.page-straighten-value {
+  min-width: 4ch;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .page-text-controls {

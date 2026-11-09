@@ -262,6 +262,7 @@ function GroupCard({
           file={sourcePdf.file}
           pageNumber={cover.pageNumber}
           rotation={cover.rotation}
+          skew={cover.skew}
           textOverlay={cover.textBoxes ? { boxes: cover.textBoxes, page: cover } : undefined}
           onExpand={() => onViewPage(cover.id)}
         />
@@ -515,6 +516,7 @@ function PageCard({
         file={sourcePdf.file}
         pageNumber={page.pageNumber}
         rotation={page.rotation}
+        skew={page.skew}
         textOverlay={page.textBoxes ? { boxes: page.textBoxes, page } : undefined}
         onExpand={() => onViewPage(page.id)}
       >

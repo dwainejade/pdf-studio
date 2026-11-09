@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Minus,
   Pencil,
+  Ruler,
   Plus,
   RotateCcw,
   RotateCw,
@@ -29,6 +30,7 @@ import { PageTextEditor } from "./PageTextOverlay";
 import { Button as GlassButton } from "../liquikit/button";
 import { GLASS_LENS } from "../layout/glassLook";
 import { displayName } from "../../lib/displayName";
+import { MAX_SKEW } from "../../lib/pageSkew";
 import {
   DEFAULT_TEXT_SIZE,
   frameLayout,
@@ -56,6 +58,7 @@ interface PagePreviewViewerProps {
   pageId: string;
   onNavigate: (pageId: string) => void;
   onRotate: (pageId: string, delta: number) => void;
+  onSkew: (pageId: string, skew: number) => void;
   onRename: (pageId: string, label: string) => void;
   onDelete: (pageId: string) => void;
   onUpdateText: (pageId: string, textBoxes: PageTextBox[]) => void;
@@ -104,6 +107,7 @@ export function PagePreviewViewer({
   pageId,
   onNavigate,
   onRotate,
+  onSkew,
   onRename,
   onDelete,
   onUpdateText,
@@ -168,6 +172,31 @@ export function PagePreviewViewer({
   const index = pages.findIndex((page) => page.id === pageId);
   const page = pages[index];
   const isRenaming = editingPageId === pageId;
+  // The slider drags a draft so a whole adjustment is one undo step.
+  const [isStraightening, setIsStraightening] = useState(false);
+  const [skewDraft, setSkewDraft] = useState<{ pageId: string; value: number }>();
+  const skew =
+    skewDraft?.pageId === pageId ? skewDraft.value : (page?.skew ?? 0);
+  const skewDraftRef = useRef(skewDraft);
+  const onSkewRef = useRef(onSkew);
+  useEffect(() => {
+    skewDraftRef.current = skewDraft;
+    onSkewRef.current = onSkew;
+  });
+  const commitSkew = useCallback(() => {
+    const draft = skewDraftRef.current;
+    skewDraftRef.current = undefined;
+    setSkewDraft(undefined);
+    if (draft) onSkewRef.current(draft.pageId, draft.value);
+  }, []);
+  // Saved shortly after the slider stops moving, and whenever the page changes or the viewer closes,
+  // so an adjustment is never lost if a release event does not arrive.
+  useEffect(() => {
+    if (!skewDraft) return;
+    const timer = window.setTimeout(commitSkew, 300);
+    return () => window.clearTimeout(timer);
+  }, [skewDraft, commitSkew]);
+  useEffect(() => commitSkew, [pageId, commitSkew]);
   const sourcePdf = page && pdfs.find((pdf) => pdf.id === page.sourcePdfId);
   const rotation = page?.rotation;
   const activeText = textState.pageId === pageId ? textState : undefined;
@@ -763,7 +792,8 @@ export function PagePreviewViewer({
   const showFailure = rendered?.key === renderKey && rendered.failed;
   const activeTextLayerError =
     textLayerError?.key === textLayerKey ? textLayerError.message : undefined;
-  const showNativeTextLayer = !isLoading && pageTextLayer?.key === textLayerKey;
+  // Selectable text would sit where the page was before it was straightened.
+  const showNativeTextLayer = !isLoading && pageTextLayer?.key === textLayerKey && !skew;
   const percent = Math.round(zoom * 100);
 
   return (
@@ -859,11 +889,12 @@ export function PagePreviewViewer({
           <div
             ref={pageSurfaceRef}
             className={`page-viewer-page${isZoomAnimating ? " is-zooming" : ""}`}
-            style={{ width: surfaceWidth, height: surfaceHeight }}
+            style={{ width: surfaceWidth, height: surfaceHeight, overflow: "hidden" }}
           >
             <canvas
               ref={canvasRef}
               className="page-viewer-image"
+              style={skew ? { transform: `rotate(${skew}deg)` } : undefined}
               onClick={(event) => {
                 event.stopPropagation();
                 if (selectedTextId)
@@ -1086,6 +1117,50 @@ export function PagePreviewViewer({
           <span className="page-viewer-message" role="status">
             {activeTextLayerError}
           </span>
+        )}
+        <span className="page-viewer-toolbar-divider glass-ui-toolbar__separator" aria-hidden="true" />
+        <button
+          type="button"
+          className={`page-action-button glass-ui-toolbar__button${isStraightening || skew ? " is-active" : ""}`}
+          aria-pressed={isStraightening}
+          title="Straighten a crooked scan"
+          onClick={() => setIsStraightening((open) => !open)}
+        >
+          <Ruler size={16} />
+          <span>Straighten</span>
+        </button>
+        {isStraightening && (
+          <div className="page-straighten-controls" role="group" aria-label="Straighten page">
+            <input
+              type="range"
+              min={-MAX_SKEW}
+              max={MAX_SKEW}
+              step={0.1}
+              value={skew}
+              aria-label="Straighten angle in degrees"
+              onChange={(event) =>
+                setSkewDraft({ pageId, value: Number(event.target.value) })
+              }
+              onPointerUp={commitSkew}
+              onKeyUp={commitSkew}
+              onBlur={commitSkew}
+              onDoubleClick={() => onSkew(pageId, 0)}
+            />
+            <span className="page-straighten-value">{skew.toFixed(1)}°</span>
+            <button
+              type="button"
+              className="page-viewer-zoom-button glass-ui-toolbar__button" data-icon=""
+              aria-label="Reset straightening"
+              title="Reset"
+              disabled={skew === 0}
+              onClick={() => {
+                setSkewDraft(undefined);
+                onSkew(pageId, 0);
+              }}
+            >
+              <X size={16} />
+            </button>
+          </div>
         )}
         <span className="page-viewer-toolbar-divider glass-ui-toolbar__separator" aria-hidden="true" />
         <button

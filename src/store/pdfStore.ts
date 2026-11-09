@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { MAX_SKEW } from '../lib/pageSkew'
 import type { PageGroup, PageTextBox, PdfPage, UploadedPdf } from '../types/pdf'
 
 const HISTORY_LIMIT = 50
@@ -23,6 +24,7 @@ interface PdfStore extends StoreSnapshot {
   deletePages: (pageIds: string[]) => void
   duplicatePages: (pageIds: string[]) => string | undefined
   rotatePages: (pageIds: string[], delta: number) => void
+  setPageSkew: (pageId: string, skew: number) => void
   renamePage: (pageId: string, label: string) => void
   setPageTextBoxes: (pageId: string, textBoxes: PageTextBox[]) => void
   groupPages: (pageIds: string[]) => void
@@ -247,6 +249,16 @@ export const usePdfStore = create<PdfStore>((set, get) => {
               }
             })()
           : page,
+      )
+      commit({ ...snapshot(current), pages })
+    },
+    setPageSkew: (pageId, skew) => {
+      const current = get()
+      const value = Math.round(Math.max(-MAX_SKEW, Math.min(MAX_SKEW, skew)) * 10) / 10
+      const target = current.pages.find((page) => page.id === pageId)
+      if (!target || (target.skew ?? 0) === value) return
+      const pages = current.pages.map((page) =>
+        page.id === pageId ? { ...page, skew: value === 0 ? undefined : value } : page,
       )
       commit({ ...snapshot(current), pages })
     },

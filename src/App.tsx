@@ -176,6 +176,7 @@ function App() {
   const deletePages = usePdfStore((state) => state.deletePages)
   const duplicatePages = usePdfStore((state) => state.duplicatePages)
   const rotatePages = usePdfStore((state) => state.rotatePages)
+  const setPageSkew = usePdfStore((state) => state.setPageSkew)
   const renamePage = usePdfStore((state) => state.renamePage)
   const setPageTextBoxes = usePdfStore((state) => state.setPageTextBoxes)
   const groupPages = usePdfStore((state) => state.groupPages)
@@ -1220,6 +1221,7 @@ function App() {
           pageId={viewerPageId}
           onNavigate={setViewerPageId}
           onRotate={(pageId, delta) => rotatePages([pageId], delta)}
+          onSkew={setPageSkew}
           onRename={renamePage}
           onDelete={(pageId) => requestDeletePages([pageId])}
           onUpdateText={setPageTextBoxes}

@@ -40,6 +40,8 @@ export interface PdfPage {
   sourcePdfName: string
   pageNumber: number
   rotation: number
+  /** Free-angle straightening in degrees clockwise, applied on top of `rotation`; the page size is kept. */
+  skew?: number
   thumbnail: string
   width: number
   height: number

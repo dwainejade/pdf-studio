@@ -94,10 +94,28 @@ export async function appendStudioPage(
 ): Promise<void> {
   const source = findSourcePdf(page, pdfs)
   const sourceDocument = await loadSourceDocument(source, documentCache)
-  const [copiedPage] = await output.copyPages(sourceDocument, [page.pageNumber - 1])
+  let outputPage: PDFPage
+  if (page.skew) {
+    // A PDF page can only turn in quarter steps, so a straightened page is the original drawn
+    // tilted about its centre onto a fresh page of the same size; text stays text.
+    const original = sourceDocument.getPage(page.pageNumber - 1)
+    const embedded = await output.embedPage(original)
+    const { width, height } = embedded
+    outputPage = output.addPage([width, height])
+    // Screen angles run clockwise, PDF angles counter-clockwise.
+    const angle = (-page.skew * Math.PI) / 180
+    const [cx, cy] = [width / 2, height / 2]
+    outputPage.drawPage(embedded, {
+      x: cx - (cx * Math.cos(angle) - cy * Math.sin(angle)),
+      y: cy - (cx * Math.sin(angle) + cy * Math.cos(angle)),
+      rotate: degrees(-page.skew),
+    })
+  } else {
+    ;[outputPage] = await output.copyPages(sourceDocument, [page.pageNumber - 1])
+    outputPage.setRotation(degrees(0))
+    output.addPage(outputPage)
+  }
   // Text is placed against the page as stored, so draw it before turning the page.
-  copiedPage.setRotation(degrees(0))
-  await drawPageText(output, copiedPage, page)
-  applyPageRotation(copiedPage, page.rotation)
-  output.addPage(copiedPage)
+  await drawPageText(output, outputPage, page)
+  applyPageRotation(outputPage, page.rotation)
 }

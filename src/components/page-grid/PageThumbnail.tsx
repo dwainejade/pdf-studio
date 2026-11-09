@@ -12,6 +12,8 @@ interface PageThumbnailProps {
   file: File
   pageNumber: number
   rotation: number
+  /** Straightening angle in degrees; the page is turned inside its own frame. */
+  skew?: number
   className?: string
   onExpand?: () => void
   /** Text added to the page, drawn over the rendered pixels. */
@@ -25,6 +27,7 @@ export function PageThumbnail({
   file,
   pageNumber,
   rotation,
+  skew,
   className,
   onExpand,
   textOverlay,
@@ -175,6 +178,7 @@ export function PageThumbnail({
         <canvas
           ref={canvasRef}
           className="page-thumbnail-canvas"
+          style={skew ? { transform: `rotate(${skew}deg)` } : undefined}
           role="img"
           aria-label={`Page ${pageNumber} of ${sourcePdfName}`}
         />

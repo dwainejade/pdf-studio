@@ -21,7 +21,7 @@ let pendingSignature: string | undefined
 const supportsDragOut = typeof navigator !== 'undefined' && 'userAgentData' in navigator
 
 function signatureOf(pages: PdfPage[], filename?: string): string {
-  return JSON.stringify([pages.map((page) => [page.id, page.rotation, page.label ?? null]), filename ?? null])
+  return JSON.stringify([pages.map((page) => [page.id, page.rotation, page.skew ?? 0, page.label ?? null]), filename ?? null])
 }
 
 export interface DragOutFileRequest {
